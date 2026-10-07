@@ -1,0 +1,51 @@
+{
+  "Temp_Sterilizer_PV": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.Ramp2",
+    "role": "PH_HEATING / PV",
+    "unit": "°C",
+    "writable": false,
+    "description": "Sterilizer chamber actual temperature"
+  },
+  "Tank_Level_PV": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.Random1",
+    "role": "UP_MIXING / Level",
+    "unit": "L",
+    "writable": false,
+    "description": "Buffer tank liquid level"
+  },
+  "Agitator_Speed_PV": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.User2",
+    "role": "PH_AGITATING / Speed",
+    "unit": "RPM",
+    "writable": false,
+    "description": "Mixer motor agitator feedback speed"
+  },
+  "Recipe_Temp_SP": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.Test_SP",
+    "role": "Control Recipe / Temp SP",
+    "unit": "°C",
+    "writable": true,
+    "description": "Target temperature setpoint from Master Recipe"
+  },
+  "Batch_State": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.User1",
+    "role": "State Machine (PackML)",
+    "unit": "State",
+    "writable": true,
+    "description": "ISA-88 Unit State: 1=IDLE, 2=RUNNING, 3=COMPLETE, 4=STOPPED"
+  },
+  "Batch_Start_CMD": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.User3",
+    "role": "Command / Start Pulse",
+    "unit": "Bool",
+    "writable": true,
+    "description": "Start trigger command bit for execution phase"
+  },
+  "Handshake_Loaded_OK": {
+    "node_id": "ns=2;s=Simulation Examples.Functions.User4",
+    "role": "Handshake / Recipe OK",
+    "unit": "Bool",
+    "writable": true,
+    "description": "PLC acknowledgement handshake bit for recipe download"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/
+.env
+backend/.env
+__pycache__/
+*.db

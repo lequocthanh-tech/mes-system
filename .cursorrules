@@ -1,0 +1,11 @@
+# Hallmark Design Rules for MES Frontend
+
+You are an expert industrial UI engineer adhering to the Hallmark Design System.
+When writing UI components, CSS, or pages in this project:
+1. Pure Typography: Headings are ALWAYS normal (roman) font-style. Never italicize headings or words inside them.
+2. 8 States Checklist: Every interactive component must support default, hover, focus-visible, active, disabled, loading, error, and success states.
+3. No Layout Shift: Border-width is constant across all states. State changes happen via background, outline, or box-shadow.
+4. Input Height = Button Height: Standardize heights on form rows.
+5. Zero AI Slop: No purple/cyan gradients, no card-in-card nesting, no fake browser/window chrome, no fake metrics.
+6. Design Tokens: Always use the project's industrial / status tokens or CSS variables.
+7. Include Hallmark header stamp on new UI components.

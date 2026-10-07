@@ -1,0 +1,44 @@
+@import "./styles/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-size: 16px;
+    --app-zoom: 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans text-sm;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+
+  /* Hallmark Discipline 1: Typography Purity - Roman headings only */
+  h1, h2, h3, h4, h5, h6 {
+    font-style: normal !important;
+  }
+
+  /* Industrial high contrast form input styling conforming to Hallmark 8-State */
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  select {
+    @apply bg-white border border-slate-300 text-slate-900 rounded-sm px-3 text-sm transition-colors;
+    height: var(--control-height, 36px);
+  }
+
+  input[type="text"]:focus-visible,
+  input[type="password"]:focus-visible,
+  input[type="number"]:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--color-focus, #0284C7);
+    outline-offset: 2px;
+  }
+}
+
