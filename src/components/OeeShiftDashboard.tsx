@@ -1,11 +1,13 @@
 /* Hallmark · component: OeeShiftDashboard · genre: modern-minimal · register: industrial-workbench
  * states: default · hover · focus · active · disabled
  * contrast: WCAG AA Pass
+ * standard: ANSI/ISA-95 · ISO 22400-2 Key Performance Indicator
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useOperations } from '../context/OperationsContext';
-import { useQuality } from '../context/QualityContext';
+import { useOeeSummary, UseOeeSummaryReturn } from '../hooks/useOeeSummary';
+import { OeeSummaryData } from '../services/api';
 import { 
   Gauge, 
   Clock, 
@@ -14,113 +16,113 @@ import {
   ChevronUp, 
   ChevronDown, 
   TrendingUp, 
-  Zap 
+  Zap,
+  Activity
 } from 'lucide-react';
 
 interface OeeShiftDashboardProps {
   className?: string;
   defaultCollapsed?: boolean;
+  oeeSummary?: UseOeeSummaryReturn | OeeSummaryData | null;
 }
 
 export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({ 
   className = '', 
-  defaultCollapsed = false 
+  defaultCollapsed = false,
+  oeeSummary: externalOeeSummary
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(defaultCollapsed);
-  const { currentBatchState, runningOrders, finishedOrders } = useOperations();
-  const { batchRecords } = useQuality();
+  const { runningOrders, finishedOrders } = useOperations();
 
-  // Dynamic Downtime Accumulation (when active batch is HELD or system in downtime)
-  const [downtimeMinutes, setDowntimeMinutes] = useState<number>(27.8);
+  // Internal OEE Poller hook fallback (2.5-second polling interval, shared with OEEDashboard)
+  const hookData = useOeeSummary({ pollIntervalMs: 2500, enabled: !externalOeeSummary });
+
+  // Merge external prop or hook data as the Single Source of Truth
+  const activeOee = externalOeeSummary || hookData;
+
+  // Extract metrics from shared OEE engine (Zeroed defaults when in cold standby / unmapped tags)
+  const overallOee = Number(
+    (activeOee as any)?.overallOee ?? 
+    (activeOee as any)?.overall_oee ?? 
+    (activeOee as any)?.oee ?? 
+    (activeOee as any)?.line_oee ?? 
+    0.0
+  );
+
+  const availability = Number(
+    (activeOee as any)?.availability ?? 
+    0.0
+  );
+
+  const performance = Number(
+    (activeOee as any)?.performance ?? 
+    0.0
+  );
+
+  const quality = Number(
+    (activeOee as any)?.qualityRate ?? 
+    (activeOee as any)?.quality_rate ?? 
+    (activeOee as any)?.quality ?? 
+    0.0
+  );
+
+  const shiftOutputVolume = Number(
+    (activeOee as any)?.shiftOutputVolume ?? 
+    (activeOee as any)?.shift_output_volume ?? 
+    (activeOee as any)?.shift_output_liters ?? 
+    0.0
+  );
+
+  const shiftTargetVolume = Number(
+    (activeOee as any)?.shiftTargetVolume ?? 
+    (activeOee as any)?.shift_target_volume ?? 
+    5000.0
+  );
+
+  const downtimeMinutes = Number(
+    (activeOee as any)?.downtimeMinutes ?? 
+    (activeOee as any)?.downtime_minutes ?? 
+    0.0
+  );
+
   const plannedShiftMinutes = 480; // 8-hour shift standard (ISA-95)
 
-  useEffect(() => {
-    if (currentBatchState === 'HELD') {
-      const interval = setInterval(() => {
-        setDowntimeMinutes((prev) => Number((prev + 0.1).toFixed(1)));
-      }, 6000); // add 0.1 min every 6 seconds of hold
-      return () => clearInterval(interval);
-    }
-  }, [currentBatchState]);
+  const shiftName = (activeOee as any)?.shiftName || (activeOee as any)?.shift_name || 'SHIFT 1 (MORNING)';
+  const shiftWindow = (activeOee as any)?.shiftWindow || (activeOee as any)?.shift_window || '06:00 — 14:00';
+  const shiftLeader = (activeOee as any)?.shiftLeader || (activeOee as any)?.shift_leader || 'Trần Đức (Lead Process Architect)';
 
-  // Current Shift Detection based on ISA-95 shift boundaries
-  const currentShift = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour >= 6 && hour < 14) {
-      return {
-        id: 'SHIFT_1',
-        title: 'SHIFT 1 (MORNING)',
-        window: '06:00 — 14:00',
-        leader: 'Trần Đức (Lead Process Architect)',
-        plannedVol: 5000,
-      };
-    } else if (hour >= 14 && hour < 22) {
-      return {
-        id: 'SHIFT_2',
-        title: 'SHIFT 2 (AFTERNOON)',
-        window: '14:00 — 22:00',
-        leader: 'Nguyễn Văn Supervisor (QA Lead)',
-        plannedVol: 5000,
-      };
-    } else {
-      return {
-        id: 'SHIFT_3',
-        title: 'SHIFT 3 (NIGHT)',
-        window: '22:00 — 06:00',
-        leader: 'Lê Văn Night Lead (Senior Automation Eng)',
-        plannedVol: 4000,
-      };
-    }
-  }, []);
+  const isStandby = overallOee === 0.0 || Boolean((activeOee as any)?.isStandby || (activeOee as any)?.is_standby);
 
-  // 1. Availability (A) Calculation: (PlannedTime - Downtime) / PlannedTime * 100
-  const availability = useMemo(() => {
-    const avail = ((plannedShiftMinutes - downtimeMinutes) / plannedShiftMinutes) * 100;
-    return Math.min(100, Math.max(0, Number(avail.toFixed(1))));
-  }, [downtimeMinutes, plannedShiftMinutes]);
+  // Dynamic calculation of shift output:
+  // Reflects backend OEE engine output volume + live execution volume from finished orders
+  const currentShiftOutput = useMemo(() => {
+    const completedVol = finishedOrders.reduce((sum, o) => sum + (o.volume || 0), 0);
+    const runningVol = runningOrders.reduce((sum, o) => sum + ((o.volume || 0) * 0.5), 0);
+    const liveExecVol = Math.round(completedVol + runningVol);
+    return Math.max(shiftOutputVolume, liveExecVol);
+  }, [shiftOutputVolume, finishedOrders, runningOrders]);
 
-  // 2. Performance (P) Calculation: (ActualBatchRate / IdealBatchRate) * 100
-  // Ideal Rate = 1000 L/h, simulated active rate = 965.0 L/h (96.5%)
-  const idealBatchRate = 1000;
-  const actualBatchRate = 965.0;
-  const performance = useMemo(() => {
-    const perf = (actualBatchRate / idealBatchRate) * 100;
-    return Math.min(100, Math.max(0, Number(perf.toFixed(1))));
-  }, [actualBatchRate, idealBatchRate]);
+  // Dynamic active batches count based on active orders in execution
+  const activeBatchesCount = useMemo(() => {
+    const rawBatches = Number((activeOee as any)?.activeBatches ?? (activeOee as any)?.active_batches ?? 0);
+    return Math.max(runningOrders.length, rawBatches);
+  }, [runningOrders, activeOee]);
 
-  // 3. Quality (Q) Calculation: First-Pass Yield from Quality module (88.9%)
-  const quality = useMemo(() => {
-    if (batchRecords && batchRecords.length > 0) {
-      const passed = batchRecords.filter((b) => b.status === 'PASS').length;
-      return Number(((passed / batchRecords.length) * 100).toFixed(1));
-    }
-    return 88.9;
-  }, [batchRecords]);
+  const completedBatchesCount = finishedOrders.length;
 
-  // 4. Overall OEE Calculation: A * P * Q
-  const overallOee = useMemo(() => {
-    const oee = (availability / 100) * (performance / 100) * (quality / 100) * 100;
-    return Number(oee.toFixed(1));
-  }, [availability, performance, quality]);
-
-  // OEE Grade Classification
+  // OEE Grade Classification conforming to ISA-95 benchmark tiers
   const oeeGrade = useMemo(() => {
+    if (isStandby || overallOee === 0.0) {
+      return { 
+        label: 'COLD STANDBY', 
+        color: 'text-slate-700 bg-slate-100 border-slate-300' 
+      };
+    }
     if (overallOee >= 85.0) return { label: 'WORLD CLASS A', color: 'text-emerald-700 bg-emerald-50 border-emerald-300' };
     if (overallOee >= 75.0) return { label: 'WORLD CLASS B+', color: 'text-sky-800 bg-sky-50 border-sky-300' };
     if (overallOee >= 65.0) return { label: 'NORMAL OPERATION C', color: 'text-amber-800 bg-amber-50 border-amber-300' };
     return { label: 'ATTENTION REQUIRED D', color: 'text-rose-800 bg-rose-50 border-rose-300' };
-  }, [overallOee]);
-
-  // Current Shift Output Volume (L)
-  const currentShiftOutput = useMemo(() => {
-    const completedVol = finishedOrders.reduce((sum, o) => sum + (o.volume || 0), 0);
-    const runningVol = runningOrders.reduce((sum, o) => sum + ((o.volume || 0) * 0.5), 0);
-    // Baseline shift output: 4,500 L
-    return Math.max(4500, Math.round(completedVol + runningVol));
-  }, [finishedOrders, runningOrders]);
-
-  const activeBatchesCount = runningOrders.length;
-  const completedBatchesCount = finishedOrders.length;
+  }, [overallOee, isStandby]);
 
   return (
     <section
@@ -133,7 +135,7 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex items-center gap-2">
             <Gauge className="w-4 h-4 text-slate-800 shrink-0" />
-            <span className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+            <span className="font-bold text-slate-900 text-xs uppercase tracking-wider not-italic">
               Real-Time OEE &amp; Shift Management
             </span>
           </div>
@@ -143,13 +145,19 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
           {/* Current Shift Detector Badge */}
           <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-white border border-slate-300 text-slate-800 text-[11px] font-semibold">
             <Clock className="w-3 h-3 text-sky-600" />
-            <span className="font-bold text-sky-900">{currentShift.title}</span>
-            <span className="text-slate-400">({currentShift.window})</span>
+            <span className="font-bold text-sky-900">{shiftName}</span>
+            <span className="text-slate-400">({shiftWindow})</span>
           </div>
 
           {/* Overall OEE Grade Pill */}
           <span className={`px-2 py-0.5 text-[10px] font-bold uppercase border ${oeeGrade.color}`}>
-            GRADE: {oeeGrade.label} ({overallOee}%)
+            GRADE: {oeeGrade.label} ({overallOee.toFixed(1)}%)
+          </span>
+
+          {/* Real-time Telemetry Heartbeat Indicator */}
+          <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 border border-slate-200">
+            <Activity className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+            <span>OEE ENGINE HOT-SYNC: ACTIVE</span>
           </span>
         </div>
 
@@ -158,13 +166,13 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
           <div className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-600">
             <Users className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-slate-400">SHIFT LEADER:</span>
-            <span className="font-semibold text-slate-800">{currentShift.leader}</span>
+            <span className="font-semibold text-slate-800">{shiftLeader}</span>
           </div>
 
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="h-7 px-2.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1 active:translate-y-px transition-none"
+            className="h-8 px-2.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center gap-1 active:translate-y-px transition-none focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2"
             title={isCollapsed ? 'Expand OEE & Shift Dashboard' : 'Collapse OEE & Shift Dashboard'}
           >
             <span>{isCollapsed ? 'EXPAND' : 'COLLAPSE'}</span>
@@ -188,7 +196,7 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                   {currentShiftOutput.toLocaleString()} <span className="text-xs text-slate-500 font-normal">Liters</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
-                  Target: {currentShift.plannedVol.toLocaleString()} L ({((currentShiftOutput / currentShift.plannedVol) * 100).toFixed(0)}% Shift Quota)
+                  Target: {shiftTargetVolume.toLocaleString()} L ({shiftTargetVolume > 0 ? ((currentShiftOutput / shiftTargetVolume) * 100).toFixed(0) : '0'}% Shift Quota)
                 </div>
               </div>
               <div className="w-8 h-8 rounded-xs bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600">
@@ -203,7 +211,7 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                   Active Batches Count
                 </div>
                 <div className="text-base font-bold text-slate-900 mt-0.5">
-                  {activeBatchesCount} <span className="text-xs text-emerald-700 font-semibold">Executing</span>
+                  {activeBatchesCount} <span className="text-xs text-emerald-700 font-semibold">{activeBatchesCount > 0 ? 'Executing' : 'Standby'}</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
                   {completedBatchesCount} Completed · 0 Aborted
@@ -221,10 +229,10 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                   Assigned Shift Leader
                 </div>
                 <div className="text-xs font-bold text-slate-900 truncate max-w-[200px] mt-1">
-                  {currentShift.leader}
+                  {shiftLeader}
                 </div>
                 <div className="text-[10px] text-sky-700 font-mono mt-0.5">
-                  Window: {currentShift.window} (Active)
+                  Window: {shiftWindow} (Active)
                 </div>
               </div>
               <div className="w-8 h-8 rounded-xs bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-700">
@@ -236,7 +244,7 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
           {/* 4 Compact OEE Progress Tiles */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 not-italic">
                 <TrendingUp className="w-3.5 h-3.5 text-slate-600" />
                 <span>OEE Performance Factorization (A × P × Q = OEE)</span>
               </span>
@@ -260,12 +268,14 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                 <div className="w-full bg-[#E2E8F0] h-2 rounded-xs overflow-hidden">
                   <div
                     className="bg-sky-600 h-full transition-all duration-500"
-                    style={{ width: `${availability}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, availability))}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
                   <span>Planned: {plannedShiftMinutes}m</span>
-                  <span className="text-rose-700 font-semibold">Down: {downtimeMinutes.toFixed(1)}m</span>
+                  <span className={downtimeMinutes > 0 ? "text-rose-700 font-semibold" : "text-slate-500"}>
+                    Down: {downtimeMinutes.toFixed(1)}m
+                  </span>
                 </div>
               </div>
 
@@ -283,12 +293,14 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                 <div className="w-full bg-[#E2E8F0] h-2 rounded-xs overflow-hidden">
                   <div
                     className="bg-indigo-600 h-full transition-all duration-500"
-                    style={{ width: `${performance}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, performance))}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-                  <span>Actual: {actualBatchRate.toFixed(0)} L/h</span>
-                  <span className="text-slate-600">Ideal: {idealBatchRate} L/h</span>
+                  <span>
+                    Actual: {performance > 0 ? `${(1000 * performance / 100).toFixed(0)} L/h` : '0 L/h (Standby)'}
+                  </span>
+                  <span className="text-slate-600">Ideal: 1,000 L/h</span>
                 </div>
               </div>
 
@@ -306,12 +318,14 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                 <div className="w-full bg-[#E2E8F0] h-2 rounded-xs overflow-hidden">
                   <div
                     className="bg-emerald-600 h-full transition-all duration-500"
-                    style={{ width: `${quality}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, quality))}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-                  <span>Module Quality Yield</span>
-                  <span className="text-emerald-700 font-semibold">First-Pass QA</span>
+                  <span>QA Yield Rate</span>
+                  <span className={quality > 0 ? "text-emerald-700 font-semibold" : "text-slate-500 font-semibold"}>
+                    {quality > 0 ? 'Conforming Yield' : 'Cold Standby'}
+                  </span>
                 </div>
               </div>
 
@@ -329,11 +343,11 @@ export const OeeShiftDashboard: React.FC<OeeShiftDashboardProps> = ({
                 <div className="w-full bg-[#E2E8F0] h-2.5 rounded-xs overflow-hidden">
                   <div
                     className="bg-slate-900 h-full transition-all duration-500"
-                    style={{ width: `${overallOee}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, overallOee))}%` }}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-700 pt-0.5 font-bold">
-                  <span>{oeeGrade.label}</span>
+                  <span className={isStandby ? 'text-slate-500' : 'text-slate-900'}>{oeeGrade.label}</span>
                   <span className="text-emerald-700">&ge; 75.0% Benchmark</span>
                 </div>
               </div>

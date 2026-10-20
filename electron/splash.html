@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DAIRY MES WORKBENCH - Loading</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, Helvetica, Arial, sans-serif;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-app-region: drag;
+    }
+
+    .splash-card {
+      width: 100%;
+      height: 100%;
+      background-color: #FFFFFF;
+      border: 1px solid #CBD5E1;
+      border-radius: 16px;
+      box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.18), 0 0 1px 1px rgba(15, 23, 42, 0.06);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 32px 36px;
+      position: relative;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .icon-container {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .icon-container img {
+      height: 48px;
+      width: auto;
+      max-width: 48px;
+      object-fit: contain;
+    }
+
+    .title-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title {
+      font-size: 19px;
+      font-weight: 800;
+      color: #0F172A;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #0284C7;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #0284C7;
+      box-shadow: 0 0 6px #38BDF8;
+      animation: pulse 1.6s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .progress-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .status-text {
+      color: #475569;
+      font-weight: 500;
+    }
+
+    .percent-text {
+      color: #0284C7;
+      font-weight: 700;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 9999px;
+      position: relative;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0284C7 0%, #38BDF8 100%);
+      border-radius: 9999px;
+      position: relative;
+      transition: width 0.04s linear;
+    }
+
+    .progress-bead {
+      position: absolute;
+      right: -4px;
+      top: -3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 3px solid #0284C7;
+      box-shadow: 0 0 8px rgba(2, 132, 199, 0.65);
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-card">
+    <div class="brand-section">
+      <div class="icon-container">
+        <img src="../public/assets/logo_mes.png" alt="DAIRY MES Logo" style="height: 48px; object-fit: contain;" />
+      </div>
+      <div class="title-group">
+        <h1 class="brand-title">DAIRY MES WORKBENCH</h1>
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          <span>SYSTEM INITIALIZING</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-info">
+        <span class="status-text" id="status-text">Khởi tạo môi trường dịch vụ...</span>
+        <span class="percent-text" id="percent-text">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill">
+          <div class="progress-bead"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const fillEl = document.getElementById('progress-fill');
+    const percentEl = document.getElementById('percent-text');
+    const statusEl = document.getElementById('status-text');
+
+    const startTime = performance.now();
+    let hasCompleted = false;
+
+    function triggerCompletion() {
+      if (hasCompleted) return;
+      hasCompleted = true;
+      // Small tick so operator sees 100% state before window handoff
+      setTimeout(() => {
+        try {
+          if (window.electronAPI && typeof window.electronAPI.sendSplashComplete === 'function') {
+            window.electronAPI.sendSplashComplete();
+          }
+        } catch (err) {
+          console.warn('[Splash] Could not invoke sendSplashComplete:', err);
+        }
+      }, 120);
+    }
+
+    function updateProgress(now) {
+      const elapsed = now - startTime;
+      let percent = 0;
+      let statusText = "Khởi tạo môi trường dịch vụ...";
+
+      if (elapsed <= 1000) {
+        // 0% -> 30%: (0s - 1.0s)
+        const ratio = Math.max(0, elapsed / 1000);
+        percent = Math.round(ratio * 30);
+        statusText = "Khởi tạo môi trường dịch vụ...";
+      } else if (elapsed <= 2200) {
+        // 30% -> 65%: (1.0s - 2.2s)
+        const ratio = (elapsed - 1000) / 1200;
+        percent = Math.round(30 + ratio * 35);
+        statusText = "Đồng bộ cổng truyền thông Kepware & SQL Server...";
+      } else if (elapsed <= 3200) {
+        // 65% -> 90%: (2.2s - 3.2s)
+        const ratio = (elapsed - 2200) / 1000;
+        percent = Math.round(65 + ratio * 25);
+        statusText = "Nạp giao diện xác thực & phân quyền ISA-95...";
+      } else if (elapsed <= 3800) {
+        // 90% -> 100%: (3.2s - 3.8s)
+        const ratio = (elapsed - 3200) / 600;
+        percent = Math.min(100, Math.round(90 + ratio * 10));
+        statusText = "Hệ thống sẵn sàng!...";
+      } else {
+        percent = 100;
+        statusText = "Hệ thống sẵn sàng!...";
+      }
+
+      fillEl.style.width = percent + '%';
+      percentEl.textContent = percent + '%';
+      statusEl.textContent = statusText;
+
+      if (percent < 100) {
+        requestAnimationFrame(updateProgress);
+      } else {
+        triggerCompletion();
+      }
+    }
+
+    requestAnimationFrame(updateProgress);
+  </script>
+</body>
+</html>

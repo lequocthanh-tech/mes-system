@@ -199,6 +199,34 @@ export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     fetchMasterDataWithRetry(3, 1000);
   }, [sqlOnline]);
 
+  // Continuous 3s auto-refetch & cross-tab / cross-module event synchronization for dbo.Orders
+  useEffect(() => {
+    let isMounted = true;
+    const pollOrders = async () => {
+      try {
+        const ords = await api.getOrders();
+        if (isMounted && Array.isArray(ords)) {
+          setWorkOrders(ords);
+        }
+      } catch (err) {
+        // Silently ignore background polling blips
+      }
+    };
+
+    const interval = setInterval(pollOrders, 3000);
+
+    const handleOrdersUpdated = () => {
+      pollOrders();
+    };
+    window.addEventListener('mes:orders-updated', handleOrdersUpdated);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('mes:orders-updated', handleOrdersUpdated);
+    };
+  }, []);
+
   // Update customer active orders count based on workOrders
   useEffect(() => {
     setCustomers((prev) =>
@@ -456,17 +484,24 @@ export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       : (workOrders.length > 0 ? Math.max(...workOrders.map((w) => w.id)) + 1 : 1);
 
     const orderId = order.orderId || `WO-${new Date().getFullYear()}-${nextId.toString().padStart(3, '0')}`;
+    const initialStatus = order.status || 'NEW';
 
     try {
       await api.createOrder({
         order_code: orderId,
+        orderId: orderId,
+        id: orderId,
         recipe_id: order.recipeId || 1,
         customer_id: order.customerId || 1,
+        customer_code: order.customerCode,
         target_volume: order.volume || 1000,
-        status: order.status || 'READY',
+        volume: order.volume || 1000,
+        status: initialStatus,
+        scheduled_start_time: order.scheduledStartTime,
         user: 'Operator'
       });
       await fetchMasterDataWithRetry();
+      window.dispatchEvent(new CustomEvent('mes:orders-updated'));
       return true;
     } catch (err: any) {
       console.error('[MasterData] Create order error:', err);
@@ -483,6 +518,7 @@ export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (updated.status) {
         await api.updateOrderStatus(target.orderId, updated.status, 'Operator');
         await fetchMasterDataWithRetry();
+        window.dispatchEvent(new CustomEvent('mes:orders-updated'));
       } else {
         setWorkOrders((prev) => prev.map((w) => (w.id === id ? { ...w, ...updated, id } : w)));
       }
@@ -501,6 +537,7 @@ export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const orderCode = target ? target.orderId : id;
       await api.deleteOrder(orderCode);
       await fetchMasterDataWithRetry();
+      window.dispatchEvent(new CustomEvent('mes:orders-updated'));
       return true;
     } catch (err: any) {
       console.error('[MasterData] Delete work order error:', err);
@@ -515,8 +552,13 @@ export const MasterDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!target) return false;
 
     try {
-      await api.updateOrderStatus(target.orderId, 'Running', 'Operator');
+      await api.dispatchOrder(target.orderId, 'Supervisor');
+      // Optimistically update
+      setWorkOrders((prev) =>
+        prev.map((w) => (w.id === id ? { ...w, status: 'READY' } : w))
+      );
       await fetchMasterDataWithRetry();
+      window.dispatchEvent(new CustomEvent('mes:orders-updated'));
       return true;
     } catch (err: any) {
       console.error('[MasterData] Dispatch order error:', err);

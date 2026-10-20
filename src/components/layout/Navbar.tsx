@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfig } from '../../context/ConfigContext';
 
 import { 
   Settings, 
@@ -19,10 +20,13 @@ import {
   FileSpreadsheet,
   Network,
   RefreshCw,
-  Bot
+  Bot,
+  Gauge,
+  AlertTriangle
 } from 'lucide-react';
+import { getActiveAlarms, acknowledgeAlarm } from '../../services/api';
 
-export type ActiveNavTab = 'Configuration' | 'ISA-88 Model' | 'Master Data' | 'Operations' | 'Quality' | 'Inventory' | 'Maintenance' | 'Reports';
+export type ActiveNavTab = 'Configuration' | 'ISA-88 Model' | 'Master Data' | 'Operations' | 'OEE PERFORMANCE' | 'Quality' | 'Inventory' | 'Maintenance' | 'Reports';
 export type SqlStoreForwardMode = 'ONLINE' | 'BUFFERING' | 'SYNCING';
 
 interface NavbarProps {
@@ -47,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'Configuration' as ActiveNavTab,
       label: 'Configuration',
       icon: Settings,
-      enabled: true,
+      enabled: user.role !== 'Operator',
     },
     {
       id: 'ISA-88 Model' as ActiveNavTab,
@@ -66,6 +70,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'Operations' as ActiveNavTab,
       label: 'Operations',
       icon: Activity,
+      enabled: true,
+    },
+    {
+      id: 'OEE PERFORMANCE' as ActiveNavTab,
+      label: 'OEE Performance',
+      icon: Gauge,
       enabled: true,
     },
     {
@@ -108,12 +118,37 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  const [gatewayStatus, setGatewayStatus] = React.useState<'ONLINE' | 'OFFLINE'>('OFFLINE');
+  const { gatewayStatus: statusData } = useConfig();
+  const isOnline = Boolean(statusData?.is_connected || statusData?.connected || statusData?.status === "ONLINE");
   const [sqlMode, setSqlMode] = React.useState<SqlStoreForwardMode>('ONLINE');
   const [bufferedCount, setBufferedCount] = React.useState<number>(0);
   const [sqlLatency, setSqlLatency] = React.useState<number | null>(null);
+  const [odooStatus, setOdooStatus] = React.useState<'SYNCED' | 'DISCONNECTED'>('DISCONNECTED');
+  const [activeAlarms, setActiveAlarms] = React.useState<any[]>([]);
+  const [isAcking, setIsAcking] = React.useState<boolean>(false);
   const [bkLogoError, setBkLogoError] = React.useState(false);
   const [titleLogoError, setTitleLogoError] = React.useState(false);
+
+  // Auto-redirect Operators away from Configuration tab
+  React.useEffect(() => {
+    if (user.role === 'Operator' && activeTab === 'Configuration') {
+      onSelectTab('Operations');
+    }
+  }, [user.role, activeTab, onSelectTab]);
+
+  const handleAckAlarm = async (alarmCode: string) => {
+    if (!alarmCode) return;
+    setIsAcking(true);
+    try {
+      await acknowledgeAlarm(alarmCode, user.username || 'operator_01');
+      const updated = await getActiveAlarms();
+      setActiveAlarms(updated || []);
+    } catch (err) {
+      console.error('[ALARM] Ack error:', err);
+    } finally {
+      setIsAcking(false);
+    }
+  };
 
   React.useEffect(() => {
     let isMounted = true;
@@ -152,20 +187,30 @@ export const Navbar: React.FC<NavbarProps> = ({
         setSqlLatency(null);
       }
 
-      // 2. Gateway status check
+      // 2. Odoo ERP status check
       try {
-        const gwRes = await fetch('/api/gateway/status');
-        if (gwRes.ok) {
-          const gwData = await gwRes.json();
+        const odooRes = await fetch('/api/erp/odoo/status');
+        if (odooRes.ok) {
+          const odooData = await odooRes.json();
           if (!isMounted) return;
-          setGatewayStatus(gwData.status === 'connected' || gwData.server_connected ? 'ONLINE' : 'OFFLINE');
+          setOdooStatus(odooData.connected ? 'SYNCED' : 'DISCONNECTED');
         } else {
           if (!isMounted) return;
-          setGatewayStatus('OFFLINE');
+          setOdooStatus('DISCONNECTED');
         }
       } catch {
         if (!isMounted) return;
-        setGatewayStatus('OFFLINE');
+        setOdooStatus('DISCONNECTED');
+      }
+
+      // 3. ISA-18.2 Active Alarms polling
+      try {
+        const alarms = await getActiveAlarms();
+        if (isMounted) {
+          setActiveAlarms(Array.isArray(alarms) ? alarms : []);
+        }
+      } catch {
+        if (isMounted) setActiveAlarms([]);
       }
     };
     
@@ -220,6 +265,80 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 select-none">
+      {/* ISA-18.2 Global Active Alarm Banner */}
+      {activeAlarms.length > 0 && (() => {
+        const latestAlarm = activeAlarms[0];
+        const isCritical = (latestAlarm.severity || latestAlarm.Severity || '').toUpperCase() === 'CRITICAL';
+        const code = latestAlarm.alarm_code || latestAlarm.AlarmCode || latestAlarm.eventId || 'ALM-UNKNOWN';
+        const msg = latestAlarm.message || latestAlarm.Message || 'Process deviation detected';
+        const eq = latestAlarm.equipment_id || latestAlarm.EquipmentID || '';
+        const time = latestAlarm.trigger_time || latestAlarm.TriggerTime || latestAlarm.triggerTime || '';
+
+        return (
+          <div
+            role="alert"
+            className={`w-full px-4 py-1.5 flex items-center justify-between text-xs font-mono transition-colors border-b select-none ${
+              isCritical
+                ? 'bg-rose-700 text-white border-rose-800'
+                : 'bg-amber-500 text-slate-950 border-amber-600 font-semibold'
+            }`}
+          >
+            <div className="flex items-center gap-3 overflow-hidden">
+              <span className={`px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase rounded-xs ${
+                isCritical ? 'bg-rose-950 text-rose-200' : 'bg-slate-900 text-amber-300'
+              }`}>
+                {isCritical ? 'CRITICAL ISA-18.2' : 'WARNING ISA-18.2'}
+              </span>
+              <div className="flex items-center gap-2 truncate">
+                <AlertTriangle className={`w-4 h-4 shrink-0 ${isCritical ? 'text-rose-200 animate-pulse' : 'text-slate-900'}`} />
+                <span className="font-bold underline tracking-tight shrink-0">{code}{eq ? ` [${eq}]` : ''}:</span>
+                <span className="truncate">{msg}</span>
+              </div>
+              {time && (
+                <span className={`text-[10px] hidden md:inline shrink-0 ${isCritical ? 'text-rose-200' : 'text-slate-800'}`}>
+                  Trigger: {time}
+                </span>
+              )}
+              {activeAlarms.length > 1 && (
+                <span className={`px-1.5 py-0.2 text-[10px] rounded-xs shrink-0 font-bold ${
+                  isCritical ? 'bg-rose-800 text-white' : 'bg-amber-600 text-white'
+                }`}>
+                  +{activeAlarms.length - 1} MORE
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 ml-3">
+              <button
+                type="button"
+                disabled={isAcking}
+                onClick={() => handleAckAlarm(code)}
+                className={`px-2.5 py-0.5 text-[11px] font-bold uppercase rounded-xs border transition-all active:translate-y-px hallmark-focus ${
+                  isCritical
+                    ? 'bg-white text-rose-800 border-white hover:bg-rose-100'
+                    : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                }`}
+                title="Acknowledge Active Alarm (ISA-18.2 Operator Action)"
+              >
+                {isAcking ? 'XÁC NHẬN...' : 'XÁC NHẬN / ACK'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectTab('Reports')}
+                className={`px-2 py-0.5 text-[11px] font-medium uppercase rounded-xs border transition-all hover:underline ${
+                  isCritical
+                    ? 'border-rose-400 text-rose-100 hover:bg-rose-800'
+                    : 'border-slate-800 text-slate-900 hover:bg-amber-400'
+                }`}
+                title="Xem Báo cáo Sự kiện & Cảnh báo Toàn Diện"
+              >
+                XEM BÁO CÁO →
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Top micro-bar: Plant & Gateway + SQL telemetry banner */}
       <div className="bg-slate-100 border-b border-slate-200 px-4 py-1 flex items-center justify-between text-[11px] text-slate-600">
         <div className="flex items-center gap-3">
@@ -235,20 +354,20 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Kepware Gateway Status badge */}
           <div
             className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-xs font-mono text-[11px] font-semibold transition-colors ${
-              gatewayStatus === 'ONLINE'
-                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                : 'bg-[#FEE2E2] text-[#991B1B] border-[#FECDD3]'
+              isOnline
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : 'bg-rose-50 text-rose-800 border-rose-300'
             }`}
-            title={`KEPWARE: ${gatewayStatus}`}
+            title={`KEPWARE: ${isOnline ? 'ONLINE' : 'OFFLINE'}`}
           >
             <Network className="w-3.5 h-3.5 shrink-0" />
             <span>KEPWARE:</span>
             <span
               className={`inline-block w-2 h-2 rounded-full ${
-                gatewayStatus === 'ONLINE' ? 'bg-emerald-600' : 'bg-rose-600'
+                isOnline ? 'bg-emerald-600' : 'bg-rose-600'
               }`}
             />
-            <span>{gatewayStatus}</span>
+            <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
 
           <span className="text-slate-300">|</span>
@@ -286,7 +405,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
+          <span className="text-slate-300">|</span>
 
+          {/* Odoo 18 ERP Status badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-xs font-mono text-[11px] font-semibold transition-colors ${
+              odooStatus === 'SYNCED'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : 'bg-slate-100 text-slate-600 border-slate-300'
+            }`}
+            title={`Odoo 18 ERP (Port 8069): ${odooStatus}`}
+          >
+            <Boxes className="w-3.5 h-3.5 shrink-0" />
+            <span>ODOO:</span>
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                odooStatus === 'SYNCED' ? 'bg-emerald-600' : 'bg-slate-400'
+              }`}
+            />
+            <span>{odooStatus}</span>
+          </div>
 
           <span className="text-slate-300">|</span>
 
@@ -418,17 +556,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                 );
               }
 
-              // Disabled / Future Phase Placeholders
+              // Disabled / Operator RBAC Restricted / Future Placeholders
+              const isRbacRestricted = item.id === 'Configuration' && user.role === 'Operator';
               return (
                 <div
                   key={item.id}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium uppercase tracking-wider text-slate-400 cursor-not-allowed border-b-2 border-transparent select-none opacity-60"
-                  title="Placeholder: Module planned for future release"
+                  title={
+                    isRbacRestricted
+                      ? 'Tài khoản Operator bị hạn chế: Cần quyền Admin/Engineer để cấu hình phần cứng và Gateway'
+                      : 'Placeholder: Module planned for future release'
+                  }
                 >
                   <Icon className="w-3.5 h-3.5 text-slate-300" />
                   <span>{item.label}</span>
-                  <span className="text-[9px] px-1 py-0.2 bg-slate-100 text-slate-500 border border-slate-200 font-mono ml-1">
-                    SOON
+                  <span className={`text-[9px] px-1 py-0.2 border font-mono ml-1 ${
+                    isRbacRestricted
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 font-bold'
+                      : 'bg-slate-100 text-slate-500 border-slate-200'
+                  }`}>
+                    {isRbacRestricted ? 'LOCKED (RBAC)' : 'SOON'}
                   </span>
                 </div>
               );

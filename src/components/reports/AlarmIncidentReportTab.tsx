@@ -43,11 +43,11 @@ export const AlarmIncidentReportTab: React.FC = () => {
   const criticalCount = alarmItems.filter((a) => a.severity === 'CRITICAL').length;
   const warningCount = alarmItems.filter((a) => a.severity === 'WARNING').length;
   const infoCount = alarmItems.filter((a) => a.severity === 'INFO').length;
-  const totalCount = alarmItems.length || 1;
+  const totalCount = alarmItems.length;
 
-  const criticalPct = Math.round((criticalCount / totalCount) * 100);
-  const warningPct = Math.round((warningCount / totalCount) * 100);
-  const infoPct = Math.round((infoCount / totalCount) * 100);
+  const criticalPct = totalCount > 0 ? Math.round((criticalCount / totalCount) * 100) : 0;
+  const warningPct = totalCount > 0 ? Math.round((warningCount / totalCount) * 100) : 0;
+  const infoPct = totalCount > 0 ? Math.round((infoCount / totalCount) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -70,31 +70,43 @@ export const AlarmIncidentReportTab: React.FC = () => {
           <div className="flex items-center justify-between text-xs font-mono">
             <span className="text-slate-600">SEVERITY RATIO SPECTRUM:</span>
             <span className="text-slate-500 font-semibold">
-              CRITICAL: {criticalCount} ({criticalPct}%) • WARNING: {warningCount} ({warningPct}%) • INFO: {infoCount} ({infoPct}%)
+              {totalCount === 0 ? (
+                'Hệ thống bình thường (0 cảnh báo)'
+              ) : (
+                `CRITICAL: ${criticalCount} (${criticalPct}%) • WARNING: ${warningCount} (${warningPct}%) • INFO: ${infoCount} (${infoPct}%)`
+              )}
             </span>
           </div>
           <div className="h-4 w-full bg-slate-100 flex overflow-hidden border border-slate-300 rounded-xs">
-            <div 
-              style={{ width: `${criticalPct}%` }} 
-              className="bg-rose-600 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
-              title={`Critical: ${criticalCount} events (${criticalPct}%)`}
-            >
-              {criticalPct}%
-            </div>
-            <div 
-              style={{ width: `${warningPct}%` }} 
-              className="bg-amber-500 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
-              title={`Warning: ${warningCount} events (${warningPct}%)`}
-            >
-              {warningPct}%
-            </div>
-            <div 
-              style={{ width: `${infoPct}%` }} 
-              className="bg-sky-500 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
-              title={`Info: ${infoCount} events (${infoPct}%)`}
-            >
-              {infoPct}%
-            </div>
+            {totalCount === 0 ? (
+              <div className="w-full h-full flex items-center justify-center text-[10px] font-mono text-slate-500 bg-slate-50">
+                Hệ thống bình thường (0 cảnh báo)
+              </div>
+            ) : (
+              <>
+                <div 
+                  style={{ width: `${criticalPct}%` }} 
+                  className="bg-rose-600 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
+                  title={`Critical: ${criticalCount} events (${criticalPct}%)`}
+                >
+                  {criticalPct > 0 && `${criticalPct}%`}
+                </div>
+                <div 
+                  style={{ width: `${warningPct}%` }} 
+                  className="bg-amber-500 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
+                  title={`Warning: ${warningCount} events (${warningPct}%)`}
+                >
+                  {warningPct > 0 && `${warningPct}%`}
+                </div>
+                <div 
+                  style={{ width: `${infoPct}%` }} 
+                  className="bg-sky-500 h-full flex items-center justify-center text-[9px] font-mono font-bold text-white transition-all"
+                  title={`Info: ${infoCount} events (${infoPct}%)`}
+                >
+                  {infoPct > 0 && `${infoPct}%`}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -192,7 +204,9 @@ export const AlarmIncidentReportTab: React.FC = () => {
               {filteredAlarms.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-slate-400 font-mono">
-                    No alarm events match the active query.
+                    {alarmItems.length === 0
+                      ? 'Hệ thống bình thường (0 cảnh báo) — Không có sự cố cảnh báo nào được ghi nhận.'
+                      : 'Không có cảnh báo nào phù hợp với bộ lọc truy vấn.'}
                   </td>
                 </tr>
               ) : (

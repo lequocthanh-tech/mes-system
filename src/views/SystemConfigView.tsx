@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { OpcGatewayConfigCard } from '../components/config/OpcGatewayConfigCard';
 import { SqlConfigCard } from '../components/config/SqlConfigCard';
+import { OdooGatewayConfigCard } from '../components/config/OdooGatewayConfigCard';
 import { UserManagement } from '../pages/configuration/UserManagement';
 import { 
   Sliders, 
@@ -16,13 +17,18 @@ import {
   Database, 
   Users, 
   Lock, 
-  LogOut 
+  LogOut,
+  Globe
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type ConfigSubTab = 'opc' | 'sql' | 'users';
+export type ConfigSubTab = 'opc' | 'sql' | 'erp' | 'users';
 
-export const SystemConfigView: React.FC = () => {
+interface SystemConfigViewProps {
+  isGatewayOnline?: boolean;
+}
+
+export const SystemConfigView: React.FC<SystemConfigViewProps> = () => {
   const { user, logout } = useAuth();
   const [activeSubTab, setActiveSubTab] = useState<ConfigSubTab>('opc');
 
@@ -95,7 +101,8 @@ export const SystemConfigView: React.FC = () => {
   const tabs: { id: ConfigSubTab; label: string; icon: React.ElementType }[] = [
     { id: 'opc', label: '1. OPC UA Gateway', icon: Server },
     { id: 'sql', label: '2. SQL Server Historian', icon: Database },
-    { id: 'users', label: '3. User & Role Management (FDA 21 CFR Part 11)', icon: Users },
+    { id: 'erp', label: '3. Enterprise ERP Gateway (ISA-95 Level 4)', icon: Globe },
+    { id: 'users', label: '4. User & Role Management (FDA 21 CFR Part 11)', icon: Users },
   ];
 
   return (
@@ -117,7 +124,7 @@ export const SystemConfigView: React.FC = () => {
             </h1>
           </div>
           <p className="text-xs text-slate-600 mt-1 max-w-3xl">
-            Pure Infrastructure Connectivity: Central Kepware OPC UA Industrial Server Gateway (KEPServerEX), Microsoft SQL Server Historian Database, and FDA 21 CFR Part 11 RBAC Administration.
+            Pure Infrastructure Connectivity: Central Kepware OPC UA Industrial Server Gateway (KEPServerEX), Microsoft SQL Server Historian Database, Level 4 Enterprise ERP Gateway (ISA-95 Level 4), and FDA 21 CFR Part 11 RBAC Administration.
           </p>
         </div>
 
@@ -161,6 +168,12 @@ export const SystemConfigView: React.FC = () => {
         {activeSubTab === 'sql' && (
           <div className="space-y-6">
             <SqlConfigCard />
+          </div>
+        )}
+
+        {activeSubTab === 'erp' && (
+          <div className="space-y-6">
+            <OdooGatewayConfigCard />
           </div>
         )}
 

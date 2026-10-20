@@ -232,10 +232,17 @@ export const OrderManagementTab: React.FC = () => {
     return customers.find((c) => c.id === formData.customerId) || customers[0];
   }, [customers, formData.customerId]);
 
-  // Equipment Pre-Check: Unit Mixing Live Status
-  const unitMixingState = telemetryMap['Batch_State']?.value !== undefined 
-    ? (telemetryMap['Batch_State']?.value === 1 ? 'IDLE (Ready)' : telemetryMap['Batch_State']?.value === 2 ? 'RUNNING' : 'IDLE (Ready)')
-    : 'IDLE (Ready)';
+  // Equipment Pre-Check: Unit Mixing Live Status (ISA-88 State Matrix)
+  const unitMixingState = useMemo(() => {
+    const rawState = telemetryMap['Batch_State']?.value ?? telemetryMap['pc1_batch_state']?.value;
+    if (rawState === undefined || rawState === null) return 'IDLE (Ready)';
+    if (rawState === 0 || rawState === 'IDLE' || rawState === 'Ready') return 'IDLE (Ready)';
+    if (rawState === 1 || rawState === 'RUNNING') return 'RUNNING';
+    if (rawState === 2 || rawState === 'HOLDING') return 'HOLDING';
+    if (rawState === 3 || rawState === 'HELD') return 'HELD';
+    if (rawState === 11 || rawState === 'COMPLETE') return 'COMPLETE';
+    return String(rawState);
+  }, [telemetryMap]);
 
   // Handle Form Reset / Clear
   const handleClear = () => {
@@ -284,14 +291,15 @@ export const OrderManagementTab: React.FC = () => {
         volume: Number(formData.volume),
         quantity: Number(formData.volume),
         calculatedSetpoints: calculated,
-        status: 'READY',
+        status: 'NEW',
         targetUnit: 'UNIT MIXING',
         scheduledStartTime: formData.scheduledStartTime,
       });
 
       if (success) {
-        showNotification('success', `Work Order [${formData.orderId}] created with validated Control Recipe setpoints in physical SQL Server.`);
+        showNotification('success', `Đã tạo lệnh sản xuất ${formData.orderId.trim().toUpperCase()} thành công!`);
         handleClear();
+        await refetchData();
       } else {
         showNotification('error', 'Database Write Failed: Unable to create work order');
       }
@@ -310,10 +318,11 @@ export const OrderManagementTab: React.FC = () => {
       if (success) {
         if (filteredOrders !== null) {
           setFilteredOrders((prev) => 
-            prev ? prev.map((w) => w.id === woId ? { ...w, status: 'RUNNING' } : w) : null
+            prev ? prev.map((w) => w.id === woId ? { ...w, status: 'READY' } : w) : null
           );
         }
-        showNotification('success', `Dispatched Order [${target.orderId}] to ISA-88 Operations Execution Engine. Target Unit: ${target.targetUnit || 'UNIT MIXING'}.`);
+        showNotification('success', `Đã chuyển giao đơn hàng ${target.orderId} sang hàng đợi vận hành (Operations)!`);
+        await refetchData();
       } else {
         showNotification('error', 'Database Dispatch Failed: Unable to update order state');
       }
@@ -602,6 +611,30 @@ export const OrderManagementTab: React.FC = () => {
               </div>
             </div>
 
+            {/* ISA-88 Multi-Batch Campaign Badge (When volume > 4.5L safe limit) */}
+            {formData.volume > 4.5 && (() => {
+              const vesselCap = 5.0;
+              const safeMax = 4.5;
+              const N = Math.ceil(formData.volume / safeMax);
+              const vBatch = formData.volume / N;
+              const loadFactor = ((vBatch / vesselCap) * 100).toFixed(1);
+              return (
+                <div className="p-2.5 bg-sky-50 border border-sky-200 text-sky-950 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1 font-bold text-sky-900 text-xs uppercase">
+                      ⚡ CHIẾN DỊCH ISA-88: {N} MẺ × {vBatch.toFixed(2)} L/MẺ (TẢI AN TOÀN {loadFactor}%)
+                    </span>
+                    <span className="px-1.5 py-0.2 bg-white text-sky-800 border border-sky-300 font-mono text-[9px] font-bold">
+                      BỒN 5.0L
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-sky-800 leading-tight">
+                    Sản lượng đơn hàng ({formData.volume.toLocaleString()} L) vượt ngưỡng an toàn đơn mẻ (&gt; 4.50 L với 10% headspace). Hệ thống MES sẽ tự động triển khai thành chiến dịch {N} mẻ cân bằng tải khi nạp công thức xuống PLC.
+                  </p>
+                </div>
+              );
+            })()}
+
             {/* Calculated Setpoints Matrix */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -877,8 +910,12 @@ export const OrderManagementTab: React.FC = () => {
                   <td colSpan={8} className="py-8 text-center text-slate-500 font-mono">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <AlertCircle className="w-5 h-5 text-slate-400" />
-                      <span className="font-semibold text-xs text-slate-700 uppercase">Không tìm thấy đơn sản xuất phù hợp</span>
-                      <span className="text-[11px] text-slate-400">Vui lòng điều chỉnh tiêu chí tìm kiếm hoặc nhấn "Đặt lại" để xem toàn bộ danh sách.</span>
+                      <span className="font-semibold text-xs text-slate-700 uppercase">
+                        {workOrders.length === 0 ? 'Chưa có đơn hàng nào. Sẵn sàng tạo đơn mới.' : 'Không tìm thấy đơn sản xuất phù hợp'}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {workOrders.length === 0 ? 'Hệ thống đang ở trạng thái Chờ (Cold Standby). Điền biểu mẫu phía trên để lên lịch mẻ mới.' : 'Vui lòng điều chỉnh tiêu chí tìm kiếm hoặc nhấn "Đặt lại" để xem toàn bộ danh sách.'}
+                      </span>
                     </div>
                   </td>
                 </tr>
@@ -886,7 +923,8 @@ export const OrderManagementTab: React.FC = () => {
                 displayOrders.map((wo) => {
                   const isSelected = selectedOrderId === wo.id;
                   const st = String(wo.status || '').toUpperCase();
-                  const isReady = st === 'READY' || st === 'NEW';
+                  const isNew = st === 'NEW';
+                  const isReady = st === 'READY';
                   const isRunning = st === 'RUNNING';
                   const isCompleted = st === 'COMPLETED';
                   const isHeld = st === 'HELD' || st === 'STOPPED' || st === 'STOPPING' || st === 'ABORTED' || st === 'ABORTING';
@@ -944,6 +982,11 @@ export const OrderManagementTab: React.FC = () => {
 
                       {/* Status Badge (ISA-101 Standard) */}
                       <td className="py-2.5 px-3 text-center">
+                        {isNew && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-800 border border-slate-300 text-[10px] font-bold">
+                            NEW
+                          </span>
+                        )}
                         {isReady && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-50 text-sky-800 border border-sky-300 text-[10px] font-bold">
                             READY
@@ -962,10 +1005,10 @@ export const OrderManagementTab: React.FC = () => {
                         )}
                         {isHeld && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-bold">
-                            {wo.status.toUpperCase()}
+                            {st}
                           </span>
                         )}
-                        {!isReady && !isRunning && !isCompleted && !isHeld && (
+                        {!isNew && !isReady && !isRunning && !isCompleted && !isHeld && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-300 text-[10px]">
                             {wo.status}
                           </span>
@@ -980,21 +1023,36 @@ export const OrderManagementTab: React.FC = () => {
                       {/* Operations Action */}
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {isReady ? (
+                          {isNew ? (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDispatch(wo.id);
                               }}
-                              className="h-7 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-[10px] uppercase tracking-wider flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 active:translate-y-px transition-none"
+                              className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 active:translate-y-px transition-none"
                             >
-                              <Send className="w-3 h-3" />
-                              <span>Dispatch</span>
+                              <Send className="w-3.5 h-3.5" />
+                              <span>[DISPATCH]</span>
                             </button>
+                          ) : isReady ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-300 text-[11px] font-bold font-mono">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+                              <span>ĐÃ CHUYỂN GIAO (READY)</span>
+                            </span>
+                          ) : isRunning ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 text-[11px] font-bold font-mono">
+                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                              <span>● RUNNING</span>
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 border border-slate-300 text-[11px] font-mono">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>● COMPLETED {wo.endTime ? `(${wo.endTime.substring(11, 16) || wo.endTime})` : ''}</span>
+                            </span>
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-mono italic">
-                              {isRunning ? 'Executing...' : 'Finished'}
+                            <span className="text-[11px] text-slate-500 font-mono">
+                              {st}
                             </span>
                           )}
 
@@ -1005,10 +1063,10 @@ export const OrderManagementTab: React.FC = () => {
                                 e.stopPropagation();
                                 handleDelete(wo.id);
                               }}
-                              className="h-7 px-2 bg-white hover:bg-rose-50 border border-slate-300 hover:border-rose-300 text-slate-500 hover:text-rose-600 text-[10px] focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 active:translate-y-px transition-none"
+                              className="h-8 px-2 bg-white hover:bg-rose-50 border border-slate-300 hover:border-rose-300 text-slate-500 hover:text-rose-600 text-xs focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 active:translate-y-px transition-none"
                               title="Delete Work Order"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>

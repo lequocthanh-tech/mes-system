@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { useOperations } from '../../context/OperationsContext';
-import { TopologyEntityStatus, TopologyPhase } from '../../types/operations';
+import { TopologyEntityStatus, TopologyPhase, getIsa88State } from '../../types/operations';
 import { 
   Network, 
   Server, 
@@ -26,36 +26,13 @@ export const TopologyMapping: React.FC = () => {
     targetCell: string;
   } | null>(null);
 
-  const getStatusColor = (status: TopologyEntityStatus) => {
-    switch (status) {
-      case 'RUNNING':
-        return 'bg-emerald-500 border-emerald-600';
-      case 'HELD':
-        return 'bg-amber-400 border-amber-500';
-      case 'FAULT':
-        return 'bg-rose-500 border-rose-600';
-      case 'COMPLETED':
-        return 'bg-blue-500 border-blue-600';
-      case 'IDLE':
-      default:
-        return 'bg-slate-300 border-slate-400';
-    }
+  const getStatusColor = (status: TopologyEntityStatus | string | number) => {
+    const meta = getIsa88State(status);
+    return `${meta.bgClass} ${meta.borderClass}`;
   };
 
-  const getStatusLabel = (status: TopologyEntityStatus) => {
-    switch (status) {
-      case 'RUNNING':
-        return 'RUNNING';
-      case 'HELD':
-        return 'HELD';
-      case 'FAULT':
-        return 'FAULT';
-      case 'COMPLETED':
-        return 'COMPLETED';
-      case 'IDLE':
-      default:
-        return 'IDLE';
-    }
+  const getStatusLabel = (status: TopologyEntityStatus | string | number) => {
+    return getIsa88State(status).name;
   };
 
   return (

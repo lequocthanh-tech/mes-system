@@ -1,51 +1,601 @@
 {
-  "Temp_Sterilizer_PV": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.Ramp2",
-    "role": "PH_HEATING / PV",
-    "unit": "°C",
+  "inventory": {
+    "TANK-01": {
+      "pv_node": "",
+      "high_node": "ns=2;s=Modbus_TCP.tank.high",
+      "low_node": "ns=2;s=Modbus_TCP.tank.low"
+    },
+    "TANK-02": {
+      "pv_node": "ns=2;s=Modbus_TCP.tank.tank1",
+      "high_node": "",
+      "low_node": ""
+    },
+    "TANK-03": {
+      "pv_node": "",
+      "high_node": "ns=2;s=Modbus_TCP.tank.high",
+      "low_node": "ns=2;s=Modbus_TCP.tank.low"
+    },
+    "TANK_03_LSH": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.high",
+      "unit": "BOOL",
+      "role": "Phụ gia vi chất & Cacao Storage Silo 03 High Level Switch (LSH)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Storage Tank 03 High Level Switch"
+    },
+    "TANK_03_LSL": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.low",
+      "unit": "BOOL",
+      "role": "Phụ gia vi chất & Cacao Storage Silo 03 Low Level Switch (LSL)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Storage Tank 03 Low Level Switch"
+    },
+    "TANK_01_LSH": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.high",
+      "unit": "BOOL",
+      "role": "Sữa tươi nguyên liệu Silo 01 Storage Silo 01 High Level Switch (LSH)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Storage Tank 01 High Level Switch"
+    },
+    "TANK_01_LSL": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.low",
+      "unit": "BOOL",
+      "role": "Sữa tươi nguyên liệu Silo 01 Storage Silo 01 Low Level Switch (LSL)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Storage Tank 01 Low Level Switch"
+    },
+    "TANK-01_PV": {
+      "node_id": ""
+    },
+    "TANK-03_PV": {
+      "node_id": ""
+    },
+    "TANK_02_LEVEL": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1",
+      "unit": "kg",
+      "role": "Đường tinh luyện RE Storage Silo 02 Loadcell PV",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Storage Tank 02 Loadcell PV"
+    },
+    "TANK-02_PV": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1"
+    },
+    "TANK_01_LEVEL": {
+      "node_id": ""
+    },
+    "TANK_03_LEVEL": {
+      "node_id": ""
+    }
+  },
+  "operations": {
+    "cell1": {
+      "Milk_SP": "",
+      "Sugar_SP": "",
+      "Additive_SP": "",
+      "Heating_SP": "",
+      "Cooling_SP": "",
+      "Agitator_SP": "",
+      "Milk_PV": "",
+      "Sugar_PV": "ns=2;s=Modbus_TCP.tank.tank1",
+      "Heating_PV": "ns=2;s=Modbus_TCP.tank.tank1",
+      "Cooling_PV": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "Agitator_PV": "",
+      "CMD_Start": "",
+      "Ack_Recipe_Loaded": "",
+      "State_ID": "",
+      "Current_Phase": "",
+      "Flag_Complete": "",
+      "Mixing_Weight_PV": "",
+      "Mixing_Temp_PV": "ns=2;s=Modbus_TCP.mix.temp",
+      "SSR_Heater_Status": "",
+      "Heater_Ready_Flag": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "Additive_PV": "",
+      "Weigh1_Weight_PV": "",
+      "Weigh2_Weight_PV": "",
+      "Weigh3_Weight_PV": "",
+      "Valve_Weigh1_Out": "",
+      "Valve_Weigh2_Out": "",
+      "Valve_Weigh3_Out": "",
+      "Out_Weight_PV": ""
+    },
+    "cell2_simit": {
+      "Milk_SP": "",
+      "Sugar_SP": "",
+      "Additive_SP": "",
+      "Heating_SP": "",
+      "Cooling_SP": "",
+      "Agitator_SP": "",
+      "Milk_PV": "",
+      "Sugar_PV": "",
+      "Heating_PV": "",
+      "Cooling_PV": "",
+      "Agitator_PV": "",
+      "CMD_Start": "",
+      "Ack_Recipe_Loaded": "",
+      "State_ID": "",
+      "Current_Phase": "",
+      "Flag_Complete": "",
+      "Mixing_Weight_PV": "",
+      "Mixing_Temp_PV": "ns=2;s=Modbus_TCP.mix.temp",
+      "SSR_Heater_Status": "",
+      "Heater_Ready_Flag": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "Weigh1_Weight_PV": "",
+      "Weigh2_Weight_PV": "",
+      "Weigh3_Weight_PV": "",
+      "Valve_Weigh1_Out": "",
+      "Valve_Weigh2_Out": "",
+      "Valve_Weigh3_Out": "",
+      "Out_Weight_PV": ""
+    },
+    "weigh1_weight_pv": {
+      "node_id": "",
+      "unit": "kg/L",
+      "role": "Loadcell Bồn cân trung gian 1 - Sữa tươi",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Intermediate weighing hopper 1 loadcell transmitter (Fresh milk)"
+    },
+    "weigh2_weight_pv": {
+      "node_id": "",
+      "unit": "kg",
+      "role": "Loadcell Bồn cân trung gian 2 - Đường",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Intermediate weighing hopper 2 loadcell transmitter (Sugar)"
+    },
+    "weigh3_weight_pv": {
+      "node_id": "",
+      "unit": "kg/L",
+      "role": "Loadcell Bồn cân trung gian 3 - Phụ gia",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Intermediate weighing hopper 3 loadcell transmitter (Additive)"
+    },
+    "valve_weigh1_out": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Van xả Bồn cân 1 sang Bồn Mix",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Weigh hopper 1 discharge valve feedback to mixing tank"
+    },
+    "valve_weigh2_out": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Van xả Bồn cân 2 sang Bồn Mix",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Weigh hopper 2 discharge valve feedback to mixing tank"
+    },
+    "valve_weigh3_out": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Van xả Bồn cân 3 sang Bồn Mix",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Weigh hopper 3 discharge valve feedback to mixing tank"
+    },
+    "out_weight_pv": {
+      "node_id": "",
+      "unit": "kg/L",
+      "role": "Loadcell Bồn Thành phẩm Out",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Finished product storage tank loadcell weight transmitter"
+    },
+    "mixing_weight_pv": {
+      "node_id": "",
+      "unit": "kg",
+      "role": "Mixing Tank Active Batch Mass (Loadcell PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Mixing vessel actual loadcell weight transmitter"
+    },
+    "mixing_temp_pv": {
+      "node_id": "ns=2;s=Modbus_TCP.mix.temp",
+      "unit": "°C",
+      "role": "Mixing Tank Temperature (PT100 PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Mixing vessel actual RTD/PT100 temperature"
+    },
+    "ssr_heater_status": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Heater Vessel Solid State Relay Output (SSR)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "Heater chamber heating element SSR status feedback"
+    },
+    "heater_ready_flag": {
+      "node_id": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "unit": "Bool",
+      "role": "Heater Target Temperature Reached Interlock Flag (PLC)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "PLC interlock permissive flag allowing liquid transfer from Mixing Tank to Heater"
+    },
+    "pc1_uht_temp_sp": {
+      "node_id": "",
+      "unit": "--",
+      "role": "pc1_uht_temp_sp",
+      "dataType": "Float",
+      "writable": false,
+      "description": "OPC UA node for pc1_uht_temp_sp"
+    },
+    "pc1_uht_temp_pv": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "UHT sterilization chamber heating actual temperature feedback"
+    },
+    "pc1_batch_state": {
+      "node_id": "",
+      "unit": "--",
+      "role": "pc1_batch_state",
+      "dataType": "Float",
+      "writable": false,
+      "description": "OPC UA node for pc1_batch_state"
+    },
+    "pc2_simit_uht_temp_sp": {
+      "node_id": "",
+      "unit": "--",
+      "role": "pc2_simit_uht_temp_sp",
+      "dataType": "Float",
+      "writable": false,
+      "description": "OPC UA node for pc2_simit_uht_temp_sp"
+    },
+    "pc2_simit_uht_temp_pv": {
+      "node_id": "",
+      "unit": "--",
+      "role": "pc2_simit_uht_temp_pv",
+      "dataType": "Float",
+      "writable": false,
+      "description": "OPC UA node for pc2_simit_uht_temp_pv"
+    },
+    "pc2_simit_batch_state": {
+      "node_id": "",
+      "unit": "--",
+      "role": "pc2_simit_batch_state",
+      "dataType": "Float",
+      "writable": false,
+      "description": "OPC UA node for pc2_simit_batch_state"
+    },
+    "pc1_phases": {
+      "PH11101": "",
+      "PH11202": "",
+      "PH11303": "",
+      "PH12101": "",
+      "PH12202": "",
+      "PH12303": "",
+      "PH22101": "",
+      "PH22102": "",
+      "PH22201": "",
+      "PH22202": "",
+      "UP1000": "",
+      "OP1001": "",
+      "OP1002": "",
+      "UP2000": "",
+      "OP2001": "",
+      "OP2002": ""
+    },
+    "pc2_simit_phases": {
+      "PH_SUPPLYMILK_PC2": "",
+      "PH_SUPPLYSUGAR_PC2": "",
+      "PH_AGITATE_PC2": "",
+      "PH_HEAT_PC2": "",
+      "PH_CHILL_PC2": "",
+      "UP1000": "",
+      "OP1001": "",
+      "OP1002": "",
+      "UP2000": "",
+      "OP2001": "",
+      "OP2002": ""
+    },
+    "mes_lifebit": "",
+    "uht_temp_pv": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "UHT sterilization chamber heating actual temperature feedback"
+    },
+    "Milk_PV": {
+      "node_id": ""
+    },
+    "Additive_PV": {
+      "node_id": ""
+    },
+    "uht_temp_sp": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Setpoint (SP)",
+      "dataType": "Float",
+      "writable": true,
+      "description": "Target sterilization temperature setpoint"
+    },
+    "Heat_Temp_ACT": {
+      "node_id": "ns=2;s=TestChannel.Device.Heater_Reversed",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "UHT sterilization chamber heating actual temperature feedback"
+    },
+    "Temp_Sterilizer_PV": {
+      "node_id": "ns=2;s=TestChannel.Device.Heater_Reversed",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "UHT sterilization chamber heating actual temperature feedback"
+    },
+    "UHT_TEMP_PV": {
+      "node_id": "ns=2;s=TestChannel.Device.Heater_Reversed",
+      "unit": "°C",
+      "role": "UHT Heating Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "UHT sterilization chamber heating actual temperature feedback"
+    },
+    "cooling_temp_sp": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "Chilling Cooling Temperature Setpoint (SP)",
+      "dataType": "Float",
+      "writable": true,
+      "description": "Target chilling/cooling temperature setpoint"
+    },
+    "cooling_temp_pv": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "Chilling Cooling Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Chilling/cooling actual temperature feedback"
+    },
+    "Cold_Temp_ACT": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "Chilling Cooling Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Chilling/cooling actual temperature feedback"
+    },
+    "Cooling_Temp_PV": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "Chilling Cooling Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Chilling/cooling actual temperature feedback"
+    },
+    "COOLING_TEMP_PV": {
+      "node_id": "",
+      "unit": "°C",
+      "role": "Chilling Cooling Temperature Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Chilling/cooling actual temperature feedback"
+    },
+    "agitator_speed_sp": {
+      "node_id": "",
+      "unit": "RPM",
+      "role": "Mixing Agitator Speed Setpoint (SP)",
+      "dataType": "Float",
+      "writable": true,
+      "description": "Mixing tank motor agitator speed target"
+    },
+    "agitator_speed_pv": {
+      "node_id": "",
+      "unit": "RPM",
+      "role": "Mixing Agitator Speed Process Value (PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Mixing tank motor agitator actual speed feedback"
+    },
+    "cip_clean_status": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "CIP Sanitization Complete Status Flag (Read: 1=Clean, 0=Dirty)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "CIP hygiene status flag (Read: 1=Clean, 0=Dirty)"
+    },
+    "cip_start_cmd": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Trigger PLC CIP Sanitation Cycle (Write Pulse Command)",
+      "dataType": "Boolean",
+      "writable": true,
+      "description": "Trigger PLC CIP sanitation cycle write pulse command"
+    },
+    "batch_start_cmd": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Batch Start Pulse Command (Write)",
+      "dataType": "Boolean",
+      "writable": true,
+      "description": "PLC Batch execution start pulse command bit"
+    },
+    "batch_hold_cmd": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "Batch Hold Command (Write)",
+      "dataType": "Boolean",
+      "writable": true,
+      "description": "PLC Batch execution hold/pause command bit"
+    },
+    "batch_complete_flag": {
+      "node_id": "",
+      "unit": "Bool",
+      "role": "SCADA Batch Execution Finished Pulse Flag (Read)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "SCADA/PLC batch execution completion trigger bit"
+    },
+    "Mixing_Temp_PV": {
+      "node_id": "ns=2;s=Modbus_TCP.mix.temp",
+      "unit": "°C",
+      "role": "Mixing Tank Temperature (PT100 PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Mixing vessel actual RTD/PT100 temperature"
+    },
+    "cell1.Mixing_Temp_PV": {
+      "node_id": "ns=2;s=Modbus_TCP.mix.temp",
+      "unit": "°C",
+      "role": "Mixing Tank Temperature (PT100 PV)",
+      "dataType": "Float",
+      "writable": false,
+      "description": "Mixing vessel actual RTD/PT100 temperature"
+    },
+    "Heater_Ready_Flag": {
+      "node_id": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "unit": "Bool",
+      "role": "Heater Target Temperature Reached Interlock Flag (PLC)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "PLC interlock permissive flag allowing liquid transfer from Mixing Tank to Heater"
+    },
+    "cell1.Heater_Ready_Flag": {
+      "node_id": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "unit": "Bool",
+      "role": "Heater Target Temperature Reached Interlock Flag (PLC)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "PLC interlock permissive flag allowing liquid transfer from Mixing Tank to Heater"
+    },
+    "HEATER_TEMP_OK": {
+      "node_id": "ns=2;s=Simulation Examples.Functions.Sine1",
+      "unit": "Bool",
+      "role": "Heater Target Temperature Reached Interlock Flag (PLC)",
+      "dataType": "Boolean",
+      "writable": false,
+      "description": "PLC interlock permissive flag allowing liquid transfer from Mixing Tank to Heater"
+    },
+    "Sugar_PV": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1"
+    }
+  },
+  "quality": {
+    "inline_ph_pv": {
+      "node_id": "",
+      "description": "Inline Milk Acidity (pH)",
+      "unit": "pH",
+      "spec_min": 6.5,
+      "spec_max": 6.8
+    },
+    "inline_brix_pv": {
+      "node_id": "",
+      "description": "Refractometer Dissolved Brix",
+      "unit": "°Bx",
+      "spec_min": 11.5,
+      "spec_max": 12.5
+    },
+    "pasteur_hold_temp": {
+      "node_id": "ns=2;s=Modbus_TCP.tank.tank1",
+      "description": "Pasteurizer Holding Tube Critical Temp (CCP-1)",
+      "unit": "°C",
+      "spec_min": 137.0,
+      "spec_max": 140.0
+    }
+  },
+  "maintenance": {
+    "PUMP_INLET_MILK": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "PUMP_INLET_SUGAR": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "PUMP_INLET_ADDITIVE": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "AGITATOR_MIX": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "PUMP_OUTLET": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "HEATER_UHT": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "ns=2;s=Modbus_TCP.tank.tank1",
+      "run_fb": ""
+    },
+    "CHILLER_COOL": {
+      "vib_rms": "",
+      "current_act": "",
+      "temp_act": "",
+      "run_fb": ""
+    },
+    "VALVE_INLET_MILK": {
+      "open_feedback": "",
+      "command_open": ""
+    },
+    "VALVE_INLET_SUGAR": {
+      "open_feedback": "",
+      "command_open": ""
+    },
+    "VALVE_INLET_ADDITIVE": {
+      "open_feedback": "",
+      "command_open": ""
+    },
+    "VALVE_OUTLET_MIX": {
+      "open_feedback": "",
+      "command_open": ""
+    },
+    "VALVE_CIP_RECYCLE": {
+      "open_feedback": "",
+      "command_open": ""
+    }
+  },
+  "oee": {
+    "total_count_pv": "",
+    "reject_count_pv": "",
+    "line_state_code": "",
+    "pump_milk_flow_pv": "",
+    "pump_milk_state": "",
+    "pump_sugar_flow_pv": "",
+    "pump_sugar_state": "",
+    "pump_additive_flow_pv": "",
+    "pump_additive_state": "",
+    "agitator_speed_pv": "",
+    "agitator_state": "",
+    "heater_uht_temp_pv": "ns=2;s=Modbus_TCP.tank.tank1",
+    "heater_uht_state": "",
+    "chiller_cool_temp_pv": "",
+    "chiller_cool_state": "",
+    "pump_outlet_flow_pv": "",
+    "pump_outlet_state": ""
+  },
+  "TANK-02_PV": {
+    "node_id": "ns=2;s=Modbus_TCP.tank.tank1",
+    "role": "TANK-02 / Level_PV",
+    "unit": "kg",
     "writable": false,
-    "description": "Sterilizer chamber actual temperature"
-  },
-  "Tank_Level_PV": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.Random1",
-    "role": "UP_MIXING / Level",
-    "unit": "L",
-    "writable": false,
-    "description": "Buffer tank liquid level"
-  },
-  "Agitator_Speed_PV": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.User2",
-    "role": "PH_AGITATING / Speed",
-    "unit": "RPM",
-    "writable": false,
-    "description": "Mixer motor agitator feedback speed"
-  },
-  "Recipe_Temp_SP": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.Test_SP",
-    "role": "Control Recipe / Temp SP",
-    "unit": "°C",
-    "writable": true,
-    "description": "Target temperature setpoint from Master Recipe"
-  },
-  "Batch_State": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.User1",
-    "role": "State Machine (PackML)",
-    "unit": "State",
-    "writable": true,
-    "description": "ISA-88 Unit State: 1=IDLE, 2=RUNNING, 3=COMPLETE, 4=STOPPED"
-  },
-  "Batch_Start_CMD": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.User3",
-    "role": "Command / Start Pulse",
-    "unit": "Bool",
-    "writable": true,
-    "description": "Start trigger command bit for execution phase"
-  },
-  "Handshake_Loaded_OK": {
-    "node_id": "ns=2;s=Simulation Examples.Functions.User4",
-    "role": "Handshake / Recipe OK",
-    "unit": "Bool",
-    "writable": true,
-    "description": "PLC acknowledgement handshake bit for recipe download"
+    "description": "Storage Tank TANK-02 (Đường tinh luyện RE) Mass/Level PV"
   }
 }

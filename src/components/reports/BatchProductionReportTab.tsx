@@ -15,8 +15,11 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
-  Target
+  Target,
+  Send,
+  RefreshCw
 } from 'lucide-react';
+import * as api from '../../services/api';
 
 export const BatchProductionReportTab: React.FC = () => {
   const { 
@@ -26,10 +29,34 @@ export const BatchProductionReportTab: React.FC = () => {
     selectBatchReport,
     searchQuery,
     fromDate,
-    toDate
+    toDate,
+    setToastNotice
   } = useReports();
 
   const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+  const [completingOrderId, setCompletingOrderId] = useState<string | null>(null);
+  const [odooClosedOrders, setOdooClosedOrders] = useState<Record<string, boolean>>({});
+
+  const handleCompleteOdooOrder = async (e: React.MouseEvent, orderId: string, actualVolume: number) => {
+    e.stopPropagation();
+    setCompletingOrderId(orderId);
+    try {
+      const res = await api.completeOdooManufacturingOrder(orderId, actualVolume);
+      if (res.success) {
+        setOdooClosedOrders((prev) => ({ ...prev, [orderId]: true }));
+        setToastNotice(`[ODOO ERP UPLINK THÀNH CÔNG] Lệnh ${orderId} đã được đánh dấu DONE trên Odoo 18 (Đã nhập kho thành phẩm & khấu trừ nguyên liệu).`);
+        setTimeout(() => setToastNotice(null), 6000);
+      } else {
+        setToastNotice(`[ODOO ERP UPLINK THẤT BẠI] ${res.error || res.message || 'Lỗi khi đóng lệnh sản xuất'}`);
+        setTimeout(() => setToastNotice(null), 6000);
+      }
+    } catch (err: any) {
+      setToastNotice(`[LỖI KẾT NỐI ERP] ${err.message || 'Không thể kết nối Odoo ERP'}`);
+      setTimeout(() => setToastNotice(null), 6000);
+    } finally {
+      setCompletingOrderId(null);
+    }
+  };
 
   // Filter master records
   const filteredMasters = batchMasters.filter((m) => {
@@ -224,12 +251,13 @@ export const BatchProductionReportTab: React.FC = () => {
                 <th className="px-3 py-2.5 font-mono text-right">Target Qty</th>
                 <th className="px-3 py-2.5 font-mono text-right">Actual Volume (L)</th>
                 <th className="px-3 py-2.5 text-center font-mono">Status</th>
+                <th className="px-3 py-2.5 text-right font-mono">Odoo ERP (Level 4)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredMasters.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-400 font-mono">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-400 font-mono">
                     No production batch records match the active query.
                   </td>
                 </tr>
@@ -282,6 +310,38 @@ export const BatchProductionReportTab: React.FC = () => {
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                           {master.status}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono" onClick={(e) => e.stopPropagation()}>
+                        {master.orderId.startsWith('WH/MO') || master.orderId.includes('MO') ? (
+                          odooClosedOrders[master.orderId] ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-bold uppercase bg-emerald-50 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              ODOO DONE
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCompleteOdooOrder(e, master.orderId, master.actualVolume)}
+                              disabled={completingOrderId === master.orderId}
+                              className="h-7 px-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-mono text-[10px] font-bold inline-flex items-center gap-1.5 border border-slate-900 active:translate-y-px transition-all rounded-xs shadow-2xs hallmark-focus"
+                              title="Uplink đóng lệnh sản xuất, nhập kho thành phẩm và khấu trừ nguyên liệu trên Odoo ERP"
+                            >
+                              {completingOrderId === master.orderId ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3 animate-spin text-white" />
+                                  <span>ĐANG ĐÓNG...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="w-3 h-3 text-sky-400" />
+                                  <span>ĐÓNG LỆNH ERP</span>
+                                </>
+                              )}
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-[10px] font-mono text-slate-400">---</span>
+                        )}
                       </td>
                     </tr>
                   );

@@ -2,6 +2,10 @@ import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
 
+if (process.platform === 'win32') {
+  app.setAppUserModelId('vn.hcmut.dairymes.workbench');
+}
+
 const isDev = !app.isPackaged;
 
 let pythonProcess: ChildProcess | null = null;
@@ -58,7 +62,6 @@ function killPythonGateway() {
   killProcessOnPort(8000);
 
   if (isDev) {
-    killProcessOnPort(3000);
     killProcessOnPort(5173);
   }
 
@@ -107,7 +110,8 @@ function createWindow() {
     width: 1440,
     height: 900,
     autoHideMenuBar: false,
-    title: 'MES PRODUCTION SYSTEM',
+    title: 'DAIRY MES WORKBENCH',
+    icon: path.join(__dirname, '../public/assets/app_icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -116,13 +120,13 @@ function createWindow() {
   });
 
   if (isDev) {
-    const devUrl = 'http://localhost:3000';
+    const devUrl = 'http://localhost:5173';
     mainWindow.webContents.openDevTools();
 
     const loadDevServer = () => {
       mainWindow.loadURL(devUrl).catch((err) => {
-        console.log('Vite server not ready yet, retrying in 1s...', err.message);
-        setTimeout(loadDevServer, 1000);
+        console.log('Vite server not ready yet, retrying in 200ms...', err.message);
+        setTimeout(loadDevServer, 200);
       });
     };
 

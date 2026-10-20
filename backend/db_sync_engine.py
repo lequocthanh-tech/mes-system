@@ -182,6 +182,8 @@ def audit_log(username: str, role: str, action: str, detail: str) -> bool:
         logger.warning(f"Failed to record audit trail: {e}")
         return False
 
+log_audit_action = audit_log
+
 
 def check_db_status() -> Dict[str, Any]:
     """
@@ -253,6 +255,15 @@ def get_customers() -> List[Dict[str, Any]]:
             "OrderPriority": priority,
             "FacilityAddress": address,
             "IsActive": is_active,
+            # snake_case standardized aliases
+            "customer_id": cid,
+            "customer_code": code,
+            "customer_name": name,
+            "contact_email": email,
+            "phone_number": phone,
+            "order_priority": priority,
+            "facility_address": address,
+            "is_active": is_active,
             # Frontend compatibility aliases
             "id": cid,
             "code": code,
@@ -402,12 +413,20 @@ def get_recipes() -> List[Dict[str, Any]]:
             "SterilizationTemp": t_hot,
             "CoolingTemp": t_cold,
             "CreatedDate": created,
+            # snake_case standardized aliases
+            "recipe_id": rid,
+            "recipe_code": rcode,
+            "recipe_name": rname,
+            "version": ver,
+            "status": status,
+            "sterilization_temp": t_hot,
+            "cooling_temp": t_cold,
+            "created_date": created,
+            "target_volume": 1000.0,
             # Frontend aliases
             "id": rid,
             "code": rcode,
             "name": rname,
-            "version": ver,
-            "status": status,
             "tempHot": t_hot,
             "tempCold": t_cold,
             "targetVolume": 1000.0,
@@ -485,55 +504,157 @@ def update_recipe(recipe_id: int, status: Optional[str] = None, temp_hot: Option
 def get_orders() -> List[Dict[str, Any]]:
     sql = """
     SELECT o.Order_ID, o.OrderCode, o.Recipe_ID, o.CustomerID, o.TargetVolume,
-           o.ActualVolume, o.Status, o.ScheduledStartTime, o.ActualStartTime, o.ActualEndTime,
-           r.Recipe_Name, r.Recipe_Code, r.Version as RecipeVersion,
-           c.CustomerName, c.CustomerCode
+           o.ActualVolume, o.Status, o.ScheduledStartTime, o.ActualStartTime, o.ActualEndTime, o.CreatedDate,
+           r.Recipe_Name, r.Recipe_Code, r.Version as RecipeVersion, r.SterilizationTemp, r.CoolingTemp,
+           c.CustomerName, c.CustomerCode, c.OrderPriority, c.PhoneNumber, c.FacilityAddress
     FROM Orders o
     LEFT JOIN Recipes r ON o.Recipe_ID = r.Recipe_ID
     LEFT JOIN Customers c ON o.CustomerID = c.CustomerID
     ORDER BY o.Order_ID DESC;
     """
     rows = execute_query(sql)
+
+    # Pre-fetch recipe ingredient ratios from dbo.Recipe_Detail
+    recipe_details_by_id: Dict[int, List[Dict[str, Any]]] = {}
+    try:
+        rd_rows = execute_query("SELECT Recipe_ID, PhaseID, Material_Code, Material_Name, Percentage FROM dbo.Recipe_Detail")
+        for rd in rd_rows:
+            r_id = int(rd.get("Recipe_ID") or 0)
+            if r_id not in recipe_details_by_id:
+                recipe_details_by_id[r_id] = []
+            recipe_details_by_id[r_id].append(rd)
+    except Exception as rd_err:
+        logger.debug(f"[get_orders] Recipe_Detail fetch notice: {rd_err}")
+
     formatted = []
     for r in rows:
         oid = r.get("Order_ID")
         code = r.get("OrderCode") or f"WO-{oid}"
         r_name = r.get("Recipe_Name") or "Fresh Pasteurized UHT Milk"
+        r_code = r.get("Recipe_Code") or f"RCP-{r.get('Recipe_ID') or 1}"
         c_name = r.get("CustomerName") or "Vinamilk Corporation"
+        c_code = r.get("CustomerCode") or f"CUS-{r.get('CustomerID') or 1}"
+        priority = int(r.get("OrderPriority") or 2)
         vol = float(r.get("TargetVolume") or 1000.0)
         act_vol = float(r.get("ActualVolume") or 0.0)
-        status = (r.get("Status") or "Ready").upper()
+        
+        # ISA-88 Standardized Lifecycle Status Normalization
+        raw_st = str(r.get("Status") or "NEW").strip().upper()
+        if raw_st in ("READY", "DISPATCHED"):
+            status = "READY"
+        elif raw_st in ("RUNNING", "IN_PROGRESS", "ACTIVE"):
+            status = "RUNNING"
+        elif raw_st in ("COMPLETED", "DONE", "FINISHED"):
+            status = "COMPLETED"
+        elif raw_st in ("HELD", "PAUSED"):
+            status = "HELD"
+        elif raw_st in ("ABORTED", "STOPPED", "CANCELLED"):
+            status = "ABORTED"
+        else:
+            status = "NEW"
+
         sched = str(r.get("ScheduledStartTime") or "")
+        created_dt = str(r.get("CreatedDate") or sched or "")
         start = str(r.get("ActualStartTime") or "")
         end = str(r.get("ActualEndTime") or "")
+        rcp_id = int(r.get("Recipe_ID") or 1)
+        ster_temp = float(r.get("SterilizationTemp") or 138.0)
+
+        # Control Recipe Formulation: compute input setpoints based on Master Recipe percentages
+        details = recipe_details_by_id.get(rcp_id, [])
+        calculated_setpoints = []
+        if details:
+            for d in details:
+                m_code = str(d.get("Material_Code") or "").upper()
+                m_name = str(d.get("Material_Name") or m_code)
+                pct = float(d.get("Percentage") or 0.0)
+                phase_id = str(d.get("PhaseID") or "")
+                if not phase_id or phase_id == "PH_DOSING":
+                    if "MILK" in m_code or "SỮA" in m_name.upper():
+                        phase_id = "PH_SUPPLYMILK"
+                    elif "SUGAR" in m_code or "ĐƯỜNG" in m_name.upper():
+                        phase_id = "PH_SUPPLYSUGAR"
+                    else:
+                        phase_id = "PH_SUPPLYADDITIVE"
+                u = "kg" if ("SUGAR" in m_code or "ĐƯỜNG" in m_name.upper()) else "L"
+                calc_sp = round((vol * pct) / 100.0, 2)
+                calculated_setpoints.append({
+                    "name": m_name,
+                    "phaseId": phase_id,
+                    "phase_id": phase_id,
+                    "materialCode": m_code,
+                    "calculatedValue": calc_sp,
+                    "unit": u,
+                    "percentage": pct
+                })
+            calculated_setpoints.append({
+                "name": "Tiệt trùng UHT",
+                "phaseId": "PH_HEATING",
+                "phase_id": "PH_HEATING",
+                "calculatedValue": ster_temp,
+                "unit": "°C",
+                "percentage": 0.0
+            })
+        else:
+            calculated_setpoints = [
+                {"name": "Supply Raw Milk (Dosing)", "phaseId": "PH_SUPPLYMILK", "calculatedValue": round(vol * 0.7, 2), "unit": "L", "percentage": 70.0},
+                {"name": "Supply Refined Sugar", "phaseId": "PH_SUPPLYSUGAR", "calculatedValue": round(vol * 0.2, 2), "unit": "kg", "percentage": 20.0},
+                {"name": "Supply Additives & Minerals", "phaseId": "PH_SUPPLYADDITIVE", "calculatedValue": round(vol * 0.1, 2), "unit": "L", "percentage": 10.0},
+                {"name": "UHT Sterilization Temperature", "phaseId": "PH_HEATING", "calculatedValue": ster_temp, "unit": "°C", "percentage": 0.0}
+            ]
 
         formatted.append({
             "Order_ID": oid,
             "OrderCode": code,
-            "Recipe_ID": r.get("Recipe_ID"),
+            "Recipe_ID": rcp_id,
             "CustomerID": r.get("CustomerID"),
             "TargetVolume": vol,
             "ActualVolume": act_vol,
             "Status": status,
+            "CreatedDate": created_dt,
             "ScheduledStartTime": sched,
             "ActualStartTime": start,
             "ActualEndTime": end,
             "Recipe_Name": r_name,
+            "Recipe_Code": r_code,
             "CustomerName": c_name,
+            "CustomerCode": c_code,
+            "OrderPriority": priority,
+            "SterilizationTemp": ster_temp,
+            # snake_case standardized aliases
+            "order_id": oid,
+            "order_code": code,
+            "recipe_id": rcp_id,
+            "customer_id": r.get("CustomerID"),
+            "target_volume": vol,
+            "actual_volume": act_vol,
+            "status": status,
+            "created_date": created_dt,
+            "scheduled_start_time": sched,
+            "actual_start_time": start,
+            "actual_end_time": end,
+            "recipe_name": r_name,
+            "recipe_code": r_code,
+            "customer_name": c_name,
+            "customer_code": c_code,
+            "order_priority": priority,
+            "sterilization_temp": ster_temp,
+            "calculated_setpoints": calculated_setpoints,
             # Frontend Operations queue fields
             "id": code,
             "orderId": code,
             "orderName": f"{code} ({r_name})",
-            "recipeId": r.get("Recipe_ID") or 1,
-            "recipeCode": r.get("Recipe_Code") or f"RCP-{r.get('Recipe_ID')}",
+            "recipeId": rcp_id,
+            "recipeCode": r.get("Recipe_Code") or f"RCP-{rcp_id}",
             "recipeName": r_name,
             "recipeVersion": r.get("RecipeVersion") or "v1.2",
             "customerId": r.get("CustomerID") or 1,
-            "customerCode": r.get("CustomerCode") or f"CUS-{r.get('CustomerID')}",
+            "customerCode": c_code,
             "customerName": c_name,
+            "orderPriority": priority,
             "volume": vol,
             "quantity": vol,
-            "status": status,
+            "calculatedSetpoints": calculated_setpoints,
             "targetUnit": "UNIT MIXING",
             "scheduledStartTime": sched,
             "startTime": start if start else "---",
@@ -771,9 +892,9 @@ def get_inventory() -> List[Dict[str, Any]]:
         mname = r.get("Material_Name") or mcode
         tank = r.get("AssignedTank") or "TANK-01"
         stock = float(r.get("CurrentStock") or 0.0)
-        cap = float(r.get("TankCapacity") or 10000.0)
+        cap = float(r.get("TankCapacity") or 5.0)
         unit = r.get("Unit") or "L"
-        min_thresh = float(r.get("MinSafetyThreshold") or 1000.0)
+        min_thresh = float(r.get("MinSafetyThreshold") or 0.5)
         last_up = str(r.get("Last_Update") or "")
         status = "LOW_STOCK" if stock < min_thresh else "NORMAL"
 
@@ -782,6 +903,7 @@ def get_inventory() -> List[Dict[str, Any]]:
             "Material_Name": mname,
             "AssignedTank": tank,
             "CurrentStock": stock,
+            "current_stock": stock,
             "Total_Quantity": float(r.get("Total_Quantity") or cap),
             "Unit": unit,
             "TankCapacity": cap,
@@ -888,31 +1010,44 @@ def create_batch_completion_report(order_code: str, report_code: str, recipe_app
                                    total_produced: float, avg_deviation: float,
                                    quality_status: str, disposition: str, sign_off: str,
                                    quality_results: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    # 1. Insert ProductionReport
-    insert_report_sql = """
-    INSERT INTO ProductionReport
-    (ReportCode, OrderCode, RecipeApplied, TotalProduced, AvgDeviationPercent, QualityStatus, DispositionAction, SignOffBy, CreatedTime)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE());
+    # 1. Upsert ProductionReport
+    upsert_report_sql = """
+    IF EXISTS (SELECT 1 FROM ProductionReport WHERE ReportCode = ?)
+    BEGIN
+        UPDATE ProductionReport
+        SET OrderCode = ?, RecipeApplied = ?, TotalProduced = ?, AvgDeviationPercent = ?, QualityStatus = ?, DispositionAction = ?, SignOffBy = ?, CreatedTime = GETDATE()
+        WHERE ReportCode = ?;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO ProductionReport
+        (ReportCode, OrderCode, RecipeApplied, TotalProduced, AvgDeviationPercent, QualityStatus, DispositionAction, SignOffBy, CreatedTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE());
+    END
     """
-    execute_query(insert_report_sql, (report_code, order_code, recipe_applied, total_produced, avg_deviation, quality_status, disposition, sign_off))
+    execute_query(upsert_report_sql, (report_code, order_code, recipe_applied, total_produced, avg_deviation, quality_status, disposition, sign_off, report_code,
+                                      report_code, order_code, recipe_applied, total_produced, avg_deviation, quality_status, disposition, sign_off))
 
     # 2. Insert Quality_Result entries if provided
     if quality_results:
         ops = []
+        # Clear previous quality entries for this report code to prevent duplicates
+        delete_qr_sql = "DELETE FROM Quality_Result WHERE ReportCode = ?;"
+        ops.append((delete_qr_sql, (report_code,)))
+
         for qr in quality_results:
             param_name = qr.get("parameter_name") or qr.get("parameterName") or "Parameter"
             sp = float(qr.get("setpoint") or 0.0)
             act = float(qr.get("actual_value") or qr.get("actualValue") or sp)
             dev = float(qr.get("deviation_percent") or qr.get("deviation") or 0.0)
-            tol = qr.get("tolerance_band") or qr.get("tolerance") or "±1%"
             eval_res = qr.get("evaluation") or "PASS"
 
             insert_qr_sql = """
             INSERT INTO Quality_Result
-            (ReportCode, OrderCode, ParameterName, Setpoint, ActualValue, DeviationPercent, ToleranceBand, Evaluation, CheckedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE());
+            (ReportCode, ParameterName, Setpoint, ActualValue, DeviationPercent, Evaluation, CheckedAt)
+            VALUES (?, ?, ?, ?, ?, ?, GETDATE());
             """
-            ops.append((insert_qr_sql, (report_code, order_code, param_name, sp, act, dev, tol, eval_res)))
+            ops.append((insert_qr_sql, (report_code, param_name, sp, act, dev, eval_res)))
         if ops:
             execute_transaction(ops)
 
@@ -949,7 +1084,8 @@ def get_batch_report_detail(order_code: str) -> Dict[str, Any]:
 
 def get_audit_logs(limit: int = 100) -> List[Dict[str, Any]]:
     sql = f"""
-    SELECT TOP {limit} ID, UserName, UserRole, ActionName, Detail, ActionTime
+    SELECT TOP {limit} ID, UserName, UserRole, ActionName, Detail, ActionTime,
+           FieldName, OldValue, NewValue, Reason, SignatureMeaning, RecordHash, IsCorrection, RefLogID
     FROM UserActionLog
     ORDER BY ActionTime DESC;
     """

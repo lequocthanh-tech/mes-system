@@ -17,7 +17,8 @@ import {
   Send, 
   Activity, 
   RefreshCw,
-  Server
+  Server,
+  Lock
 } from 'lucide-react';
 import { EditSingleTagModal } from './EditSingleTagModal';
 
@@ -80,11 +81,12 @@ export const NodeInspector: React.FC = () => {
   const isTag = selectedNode.nodeType === 'TAG' && typeof selectedNode.tagId === 'number';
   const live = telemetryMap[selectedNode.address] || (selectedNode.opcNodeId ? telemetryMap[selectedNode.opcNodeId] : null) || telemetryMap[selectedNode.tagName];
   
+  const isBatchStateTag = selectedNode.tagName === 'Batch_State' || selectedNode.tagName === 'pc1_batch_state';
   const liveValue = live?.value !== undefined ? live.value : (selectedNode.liveValue !== undefined ? selectedNode.liveValue : null);
-  const liveQuality = live?.quality || selectedNode.liveQuality || (gatewayConnected ? 'Good' : 'Bad');
+  const liveQuality = live?.quality || selectedNode.liveQuality || (live ? (gatewayConnected ? 'Good' : 'Bad') : 'Unmapped');
   const liveTimestamp = live?.timestamp || selectedNode.lastUpdated || '--:--:--';
   const unit = selectedNode.unit || live?.unit || '';
-  const isWritable = Boolean(selectedNode.writable || selectedNode.accessType === 'Read/Write');
+  const isWritable = Boolean(selectedNode.writable || selectedNode.accessType === 'Read/Write') && !isBatchStateTag;
 
   const handleCopyNodeId = () => {
     if (!selectedNode.address) return;
@@ -111,6 +113,10 @@ export const NodeInspector: React.FC = () => {
 
   const handleDispatchWrite = async (val: any, dType?: string) => {
     if (!selectedNode.address) return;
+    if (isBatchStateTag) {
+      setWriteFeedback({ type: 'error', message: 'ISA-88 State: Feedback register is Read-Only via PLC state machine' });
+      return;
+    }
     setIsWriting(true);
     setWriteFeedback(null);
 
@@ -290,6 +296,19 @@ export const NodeInspector: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ISA-88 State Feedback Register Notice (Strictly Read-Only) */}
+      {isBatchStateTag && (
+        <div className="p-4 border-b border-slate-200 bg-slate-50 font-mono text-xs flex items-center gap-3">
+          <Lock className="w-4 h-4 text-slate-600 shrink-0" />
+          <div>
+            <div className="font-bold text-slate-800">ISA-88 State Machine Feedback Register (Read-Only)</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Tag <span className="font-semibold text-slate-700">{selectedNode.tagName}</span> is driven autonomously by the physical PLC / simulation engine. Direct UI overrides are prohibited to prevent state desynchronization.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Interactive Write Dispatch Panel (Strictly for Writable Nodes) */}
       {isWritable && (

@@ -5,6 +5,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOperations } from '../../context/OperationsContext';
+import { useMasterData } from '../../context/MasterDataContext';
+import { useGatewayStatus } from '../../context/ConfigContext';
 import { ProcessTrendCard } from '../../types/operations';
 import { getHistorianDatalog, getSetpointMonitoring } from '../../services/api';
 import { 
@@ -161,10 +163,12 @@ interface SetpointLog {
 
 export const ProcessTelemetry: React.FC = () => {
   const { trendCards } = useOperations();
+  const { workOrders } = useMasterData();
+  const { isGatewayOnline } = useGatewayStatus();
   const [telemetryMode, setTelemetryMode] = useState<'realtime' | 'historian'>('realtime');
 
   // Historian query state
-  const [targetOrderCode, setTargetOrderCode] = useState<string>('WO_Batch_12');
+  const [targetOrderCode, setTargetOrderCode] = useState<string>('LATEST');
   const [historicalData, setHistoricalData] = useState<DatalogPoint[]>([]);
   const [setpointLogs, setSetpointLogs] = useState<SetpointLog[]>([]);
   const [isLoadingHistorian, setIsLoadingHistorian] = useState<boolean>(false);
@@ -306,10 +310,21 @@ export const ProcessTelemetry: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-1.5 pl-3">
-              <Zap className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-slate-800 font-semibold">
-                WebSocket Streaming &lt;15ms · Kepware Port 49320
-              </span>
+              {isGatewayOnline ? (
+                <>
+                  <Zap className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                  <span className="text-emerald-800 font-semibold font-mono">
+                    WebSocket Streaming &lt;15ms · Kepware Port 49320 (ONLINE)
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block shrink-0" />
+                  <span className="text-rose-600 font-semibold font-mono">
+                    DISCONNECTED / STALE · Kepware Port 49320 (OFFLINE)
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -349,14 +364,14 @@ export const ProcessTelemetry: React.FC = () => {
                   type="text"
                   value={targetOrderCode}
                   onChange={(e) => setTargetOrderCode(e.target.value)}
-                  placeholder="WO_Batch_12..."
+                  placeholder="LATEST hoặc mã đơn..."
                   className="bg-white border border-slate-300 h-9 px-3 text-xs font-mono text-slate-900 rounded-xs hallmark-focus w-44"
                 />
               </div>
 
               {/* Quick Select Chips */}
               <div className="flex items-center gap-1.5">
-                {['WO_Batch_12', 'WO-2026-TEST', 'WO_INIT_TEST', 'LATEST'].map((code) => (
+                {Array.from(new Set(['LATEST', ...workOrders.slice(0, 3).map((w) => w.orderId || String(w.id))])).map((code) => (
                   <button
                     key={code}
                     type="button"
@@ -402,9 +417,9 @@ export const ProcessTelemetry: React.FC = () => {
           {availableTags.length === 0 ? (
             <div className="p-10 bg-white border border-slate-200 text-center text-slate-500 font-mono">
               <Database className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="font-bold text-slate-700">Chưa có bản ghi nào cho mã mẻ [{targetOrderCode}].</p>
+              <p className="font-bold text-slate-700">Chưa có dữ liệu lưu trữ lịch sử trong dbo.PLC_Datalog.</p>
               <p className="text-[11px] text-slate-500 mt-1">
-                Bản ghi thời gian thực sẽ tự động được lưu vào dbo.PLC_Datalog khi mẻ sản xuất ở trạng thái RUNNING.
+                Hệ thống đang ở chế độ Chờ (Cold Standby). Dữ liệu sẽ tự động được ghi nhận khi mẻ sản xuất được kích hoạt (RUNNING).
               </p>
             </div>
           ) : (

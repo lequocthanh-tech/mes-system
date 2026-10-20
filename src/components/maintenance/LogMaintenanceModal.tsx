@@ -32,9 +32,11 @@ export const LogMaintenanceModal: React.FC<LogMaintenanceModalProps> = ({
   const { equipmentList, recordMaintenanceEvent, refreshData } = useEquipment();
 
   const [selectedEqId, setSelectedEqId] = useState<string>(
-    preSelectedEquipmentId || (equipmentList[0] ? equipmentList[0].id : 'PUMP_INLET')
+    preSelectedEquipmentId || (equipmentList[0] ? equipmentList[0].id : 'PUMP_INLET_MILK')
   );
+  const [ticketType, setTicketType] = useState<string>('PREVENTIVE');
   const [maintenanceType, setMaintenanceType] = useState<ServiceActionType>('Periodic Inspection');
+  const [sparePartsUsed, setSparePartsUsed] = useState<string>('');
 
   const [technician, setTechnician] = useState<string>('Kỹ sư Nguyễn Thành Long');
   const [costVnd, setCostVnd] = useState<number>(500000);
@@ -64,11 +66,14 @@ export const LogMaintenanceModal: React.FC<LogMaintenanceModalProps> = ({
     setFeedback(null);
 
     try {
-      const res = recordMaintenanceEvent({
+      const res = await recordMaintenanceEvent({
         equipmentId: selectedEqId,
         equipmentName: selectedEquipment ? selectedEquipment.name : selectedEqId,
         technician: technician.trim(),
         serviceAction: maintenanceType,
+        ticketType,
+        sparePartsUsed: sparePartsUsed.trim(),
+        actionTaken: maintenanceType,
         servicedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
         resetRuntime,
         remarks: description.trim(),
@@ -172,23 +177,55 @@ export const LogMaintenanceModal: React.FC<LogMaintenanceModalProps> = ({
             </div>
           )}
 
-          {/* Maintenance Type & Technician Row */}
+          {/* Ticket Classification & Maintenance Action */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="block text-[11px] font-bold text-slate-700 uppercase">
-                Loại hình bảo trì (Maintenance Type) *
+                Phân loại phiếu (Ticket Type) *
+              </label>
+              <select
+                value={ticketType}
+                onChange={(e) => setTicketType(e.target.value)}
+                className="w-full bg-white border border-slate-300 h-9 px-2.5 text-xs font-mono rounded-xs hallmark-focus"
+              >
+                <option value="PREVENTIVE">Bảo trì phòng ngừa (Preventive)</option>
+                <option value="CORRECTIVE">Sửa chữa sự cố (Corrective)</option>
+                <option value="CALIBRATION">Hiệu chuẩn thiết bị (Calibration)</option>
+                <option value="OVERHAUL">Đại tu toàn diện (Overhaul)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                Hành động thực hiện (Action) *
               </label>
               <select
                 value={maintenanceType}
                 onChange={(e) => setMaintenanceType(e.target.value as ServiceActionType)}
                 className="w-full bg-white border border-slate-300 h-9 px-2.5 text-xs font-mono rounded-xs hallmark-focus"
               >
-                <option value="Periodic Inspection">Bảo trì phòng ngừa (Preventive)</option>
+                <option value="Periodic Inspection">Kiểm tra định kỳ (Periodic Inspection)</option>
                 <option value="Seal Replacement">Thay thế linh kiện & Phớt (Replacement)</option>
                 <option value="Overhaul">Đại tu toàn diện (Overhaul)</option>
                 <option value="Calibration">Hiệu chuẩn cảm biến (Calibration)</option>
                 <option value="Lubrication">Tra dầu & Bôi trơn (Lubrication)</option>
               </select>
+            </div>
+          </div>
+
+          {/* Spare Parts Used & Technician */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase">
+                Vật tư & Linh kiện thay thế
+              </label>
+              <input
+                type="text"
+                value={sparePartsUsed}
+                onChange={(e) => setSparePartsUsed(e.target.value)}
+                placeholder="VD: Phớt Viton, Vòng bi SKF, Dầu nhớt..."
+                className="w-full bg-white border border-slate-300 h-9 px-3 text-xs font-mono text-slate-900 rounded-xs hallmark-focus"
+              />
             </div>
 
             <div className="space-y-1">

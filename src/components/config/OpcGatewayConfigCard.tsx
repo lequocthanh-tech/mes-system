@@ -20,12 +20,22 @@ import {
   User,
   KeyRound
 } from 'lucide-react';
+import { 
+  getGatewayConfig, 
+  testGatewayHandshake, 
+  updateGatewayConfig, 
+  connectGateway, 
+  disconnectGateway 
+} from '../../services/api';
+import { useConfig } from '../../context/ConfigContext';
 
 export const OpcGatewayConfigCard: React.FC = () => {
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const { gatewayStatus: statusData, refreshGatewayStatus } = useConfig();
+  const isOnline = Boolean(statusData?.is_connected || statusData?.connected || statusData?.status === "ONLINE");
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [endpointUrl, setEndpointUrl] = useState('opc.tcp://127.0.0.1:49320');
   const [providerName, setProviderName] = useState('KEPServerEX v6 - Industrial Connectivity Platform');
-  const [timeoutMs, setTimeoutMs] = useState(5000);
+  const [timeoutMs, setTimeoutMs] = useState(3000);
   const [samplingIntervalMs, setSamplingIntervalMs] = useState(100);
   const [securityPolicy, setSecurityPolicy] = useState('None');
   const [authMode, setAuthMode] = useState<'anonymous' | 'username'>('anonymous');
@@ -33,42 +43,69 @@ export const OpcGatewayConfigCard: React.FC = () => {
   const [password, setPassword] = useState('');
   const [latencyMs, setLatencyMs] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isHandshaking, setIsHandshaking] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
 
+  // Fetch initial config from backend so settings persist across reboots
+  useEffect(() => {
+    let isMounted = true;
+    const fetchConfig = async () => {
+      try {
+        const cfg = await getGatewayConfig();
+        if (isMounted && cfg) {
+          if (cfg.endpoint) setEndpointUrl(cfg.endpoint);
+          if (cfg.timeout_ms) setTimeoutMs(cfg.timeout_ms);
+          if (cfg.sampling_interval_ms || cfg.sampling_rate_ms) {
+            setSamplingIntervalMs(cfg.sampling_interval_ms || cfg.sampling_rate_ms || 100);
+          }
+          if (cfg.provider_name) setProviderName(cfg.provider_name);
+          if (cfg.security_policy) setSecurityPolicy(cfg.security_policy);
+          if (cfg.auth_mode === 'username' || cfg.auth_mode === 'anonymous') {
+            setAuthMode(cfg.auth_mode);
+          }
+          if (cfg.username) setUsername(cfg.username);
+          if (typeof cfg.connected === 'boolean') {
+            refreshGatewayStatus();
+          }
+        }
+      } catch (err) {
+        console.debug('Initial gateway config fetch:', err);
+      }
+    };
+    fetchConfig();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Check Gateway Health from Python Backend
   const checkGatewayStatus = async (showToast = false) => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/gateway/status');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'connected') {
-          setConnectionStatus('connected');
-          setLatencyMs(data.latency_ms || 0);
-          if (showToast) {
-            setFeedback({
-              type: 'success',
-              message: `Kepware Gateway Online · Active Nodes: ${data.active_tags || 0}${data.latency_ms ? ` · Ping: ${data.latency_ms}ms` : ''}`
-            });
-          }
-        } else {
-          setConnectionStatus('disconnected');
-          if (showToast) {
-            setFeedback({
-              type: 'error',
-              message: 'Kepware runtime offline. Ensure KEPServerEX service is running on port 49320.'
-            });
-          }
+      const data = await refreshGatewayStatus();
+      const online = Boolean(data?.is_connected || data?.connected || data?.status === 'ONLINE');
+      if (online) {
+        setLatencyMs(data?.latency_ms || 0);
+        if (showToast) {
+          setFeedback({
+            type: 'success',
+            message: `Kepware Gateway Online · Active Nodes: ${data?.active_tags || 0}${data?.latency_ms ? ` · Ping: ${data.latency_ms}ms` : ''}`
+          });
         }
       } else {
-        throw new Error('API request failed');
+        if (showToast) {
+          setFeedback({
+            type: 'error',
+            message: 'Kepware runtime offline. Ensure KEPServerEX service is running on port 49320.'
+          });
+        }
       }
     } catch {
-      setConnectionStatus('disconnected');
       if (showToast) {
         setFeedback({
           type: 'error',
@@ -86,30 +123,110 @@ export const OpcGatewayConfigCard: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleTestHandshake = () => {
+  const handleTestHandshake = async () => {
     setFeedback(null);
-    setConnectionStatus('connecting');
-    checkGatewayStatus(true);
-  };
-
-  const handleToggleConnect = () => {
-    setFeedback(null);
-    if (connectionStatus === 'connected') {
-      setConnectionStatus('disconnected');
-      setFeedback({ type: 'info', message: 'OPC UA Session disconnected by operator.' });
-    } else {
-      setConnectionStatus('connecting');
-      checkGatewayStatus(true);
+    setIsHandshaking(true);
+    try {
+      const res = await testGatewayHandshake(endpointUrl, timeoutMs);
+      if (res.success) {
+        setFeedback({
+          type: 'success',
+          message: res.message || `OPC UA Handshake Verified: Successfully reached ${endpointUrl}`
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: `Handshake Failed: ${res.error || 'Connection timed out or refused.'}`
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: `Handshake Failed: ${err?.message || 'Server error or network unreachable.'}`
+      });
+    } finally {
+      setIsHandshaking(false);
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleToggleConnect = async () => {
+    setFeedback(null);
+    setIsLoading(true);
+    if (isOnline) {
+      try {
+        await disconnectGateway();
+        await refreshGatewayStatus();
+        setFeedback({ type: 'info', message: 'OPC UA Session disconnected by operator.' });
+      } catch (err: any) {
+        await refreshGatewayStatus();
+        setFeedback({ type: 'error', message: `Disconnection error: ${err?.message || 'Failed'}` });
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setIsConnecting(true);
+      try {
+        const res = await connectGateway(endpointUrl);
+        const connSuccess = Boolean(
+          res?.success && 
+          (res?.status === 'ONLINE' || res?.connected || res?.is_connected || res?.status === 'connected')
+        );
+        // Immediate re-fetch so that Configuration badge, Global Header badge, and ISA-88 badge all transition synchronously to ONLINE
+        const freshStatus = await refreshGatewayStatus();
+        const freshOnline = Boolean(
+          freshStatus?.is_connected || freshStatus?.connected || freshStatus?.status === 'ONLINE'
+        );
+        if (connSuccess || freshOnline) {
+          setFeedback({ type: 'success', message: `Connected to OPC UA Gateway: ${endpointUrl}` });
+        } else {
+          setFeedback({ type: 'error', message: `Connection failed: ${res?.error || 'Target server unreachable.'}` });
+        }
+      } catch (err: any) {
+        await refreshGatewayStatus();
+        setFeedback({ type: 'error', message: `Connection failed: ${err?.message || 'Network error'}` });
+      } finally {
+        setIsConnecting(false);
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFeedback({
-      type: 'success',
-      message: 'OPC UA Gateway configuration settings saved successfully.'
-    });
-    setTimeout(() => setFeedback(null), 4000);
+    setFeedback(null);
+    setIsSaving(true);
+    try {
+      const res = await updateGatewayConfig({
+        endpoint: endpointUrl,
+        timeout_ms: timeoutMs,
+        sampling_rate_ms: samplingIntervalMs,
+        sampling_interval_ms: samplingIntervalMs,
+        provider_name: providerName,
+        security_policy: securityPolicy,
+        auth_mode: authMode,
+        username: authMode === 'username' ? username : '',
+        password: authMode === 'username' ? password : '',
+      });
+      await refreshGatewayStatus();
+      if (res.success) {
+        setFeedback({
+          type: 'success',
+          message: res.message || 'OPC UA Gateway configuration persisted to disk and applied.'
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          message: `Failed to save configuration: ${res.error || 'Server error'}`
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: `Failed to save configuration: ${err?.message || 'Network error'}`
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -119,15 +236,15 @@ export const OpcGatewayConfigCard: React.FC = () => {
       tag="KEPSERVEREX"
       headerAction={
         <div className="flex items-center gap-2 font-mono text-xs">
-          {connectionStatus === 'connected' ? (
-            <span className="h-7 px-2.5 bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block animate-pulse" />
-              ● KEPWARE ONLINE (Good)
-            </span>
-          ) : connectionStatus === 'connecting' ? (
+          {isConnecting ? (
             <span className="h-7 px-2.5 bg-sky-50 text-sky-800 border border-sky-300 font-bold flex items-center gap-1.5">
               <RefreshCw className="w-3 h-3 animate-spin text-sky-600" />
               CONNECTING...
+            </span>
+          ) : isOnline ? (
+            <span className="h-7 px-2.5 bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block animate-pulse" />
+              ● ONLINE (Kepware Port 49320)
             </span>
           ) : (
             <span className="h-7 px-2.5 bg-rose-50 text-rose-800 border border-rose-300 font-bold flex items-center gap-1.5">
@@ -145,7 +262,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               SAMPLING: {samplingIntervalMs}ms
             </span>
             <span>TIMEOUT: {timeoutMs}ms</span>
-            <span>LATENCY: {latencyMs}ms</span>
+            <span>LATENCY: {statusData?.latency_ms ?? latencyMs}ms</span>
           </div>
           <div>
             <span>PROTOCOL: OPC UA (TCP Binary / Port 49320)</span>
@@ -176,7 +293,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
             <button
               type="button"
               onClick={() => setFeedback(null)}
-              className="text-[11px] underline uppercase tracking-wider text-slate-500 hover:text-slate-800 ml-4"
+              className="text-[11px] underline uppercase tracking-wider text-slate-500 hover:text-slate-800 ml-4 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
             >
               DISMISS
             </button>
@@ -184,7 +301,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Endpoint URL */}
+          {/* Endpoint URL - Dynamic & Editable */}
           <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5 text-slate-500" />
@@ -194,8 +311,8 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="text"
               value={endpointUrl}
               onChange={(e) => setEndpointUrl(e.target.value)}
-              disabled={connectionStatus !== 'disconnected'}
-              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-500"
+              placeholder="opc.tcp://<IP_OR_HOSTNAME>:<PORT>"
+              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
               required
             />
           </div>
@@ -210,8 +327,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="text"
               value={providerName}
               onChange={(e) => setProviderName(e.target.value)}
-              disabled={connectionStatus !== 'disconnected'}
-              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-500"
+              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
               required
             />
           </div>
@@ -225,8 +341,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
             <select
               value={securityPolicy}
               onChange={(e) => setSecurityPolicy(e.target.value)}
-              disabled={connectionStatus !== 'disconnected'}
-              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-500"
+              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
             >
               <option value="None">None (Local Loopback / Direct)</option>
               <option value="Basic256Sha256">Basic256Sha256 - Sign & Encrypt</option>
@@ -243,8 +358,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="number"
               value={timeoutMs}
               onChange={(e) => setTimeoutMs(Number(e.target.value))}
-              disabled={connectionStatus !== 'disconnected'}
-              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-500"
+              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
               required
             />
           </div>
@@ -257,8 +371,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="number"
               value={samplingIntervalMs}
               onChange={(e) => setSamplingIntervalMs(Number(e.target.value))}
-              disabled={connectionStatus !== 'disconnected'}
-              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-500"
+              className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2"
               required
             />
           </div>
@@ -277,7 +390,6 @@ export const OpcGatewayConfigCard: React.FC = () => {
                   value="anonymous"
                   checked={authMode === 'anonymous'}
                   onChange={() => setAuthMode('anonymous')}
-                  disabled={connectionStatus !== 'disconnected'}
                   className="w-4 h-4 text-slate-900 border-slate-300 focus:ring-slate-800"
                 />
                 <span>Anonymous / Guest</span>
@@ -289,7 +401,6 @@ export const OpcGatewayConfigCard: React.FC = () => {
                   value="username"
                   checked={authMode === 'username'}
                   onChange={() => setAuthMode('username')}
-                  disabled={connectionStatus !== 'disconnected'}
                   className="w-4 h-4 text-slate-900 border-slate-300 focus:ring-slate-800"
                 />
                 <span>Username & Password</span>
@@ -307,7 +418,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={authMode === 'anonymous' || connectionStatus !== 'disconnected'}
+              disabled={authMode === 'anonymous'}
               placeholder={authMode === 'anonymous' ? 'Anonymous' : 'Enter username'}
               className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-400"
             />
@@ -322,7 +433,7 @@ export const OpcGatewayConfigCard: React.FC = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              disabled={authMode === 'anonymous' || connectionStatus !== 'disconnected'}
+              disabled={authMode === 'anonymous'}
               placeholder={authMode === 'anonymous' ? '••••••••' : 'Enter password'}
               className="w-full h-9 font-mono text-xs border border-slate-300 bg-white px-3 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:bg-slate-100 disabled:text-slate-400"
             />
@@ -334,37 +445,57 @@ export const OpcGatewayConfigCard: React.FC = () => {
           <button
             type="button"
             onClick={handleTestHandshake}
-            disabled={isLoading || connectionStatus === 'connecting'}
-            className="h-9 px-4 bg-white border border-slate-300 hover:bg-slate-100 active:translate-y-px text-slate-800 text-xs font-semibold uppercase tracking-wider flex items-center gap-2 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50"
+            disabled={isHandshaking || isLoading || isSaving}
+            className="h-9 px-4 bg-white border border-slate-300 hover:bg-slate-100 active:translate-y-px text-slate-800 text-xs font-semibold uppercase tracking-wider flex items-center gap-2 focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Network className="w-4 h-4 text-slate-600" />
-            <span>TEST HANDSHAKE</span>
+            {isHandshaking ? (
+              <RefreshCw className="w-4 h-4 text-sky-600 animate-spin" />
+            ) : (
+              <Network className="w-4 h-4 text-slate-600" />
+            )}
+            <span>{isHandshaking ? 'TESTING HANDSHAKE...' : 'TEST HANDSHAKE'}</span>
           </button>
 
           <button
             type="button"
             onClick={handleToggleConnect}
-            disabled={isLoading || connectionStatus === 'connecting'}
-            className={`h-9 px-4 text-white text-xs font-semibold uppercase tracking-wider flex items-center gap-2 active:translate-y-px focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50 ${
-              connectionStatus === 'connected'
+            disabled={isHandshaking || isLoading || isSaving || isConnecting}
+            className={`h-9 px-4 text-white text-xs font-semibold uppercase tracking-wider flex items-center gap-2 active:translate-y-px focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isOnline
                 ? 'bg-slate-700 hover:bg-slate-800'
                 : 'bg-emerald-600 hover:bg-emerald-700'
             }`}
           >
-            <Power className="w-4 h-4" />
-            <span>{connectionStatus === 'connected' ? 'DISCONNECT GATEWAY' : 'CONNECT GATEWAY'}</span>
+            {isConnecting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Power className="w-4 h-4" />
+            )}
+            <span>
+              {isOnline
+                ? 'DISCONNECT GATEWAY'
+                : isConnecting
+                ? 'CONNECTING...'
+                : 'CONNECT GATEWAY'}
+            </span>
           </button>
 
           <button
             type="submit"
-            disabled={isLoading || connectionStatus === 'connecting'}
-            className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold uppercase tracking-wider flex items-center gap-2 active:translate-y-px focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50"
+            disabled={isHandshaking || isLoading || isSaving}
+            className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold uppercase tracking-wider flex items-center gap-2 active:translate-y-px focus:outline-2 focus:outline-sky-600 focus:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            <span>SAVE SETTINGS</span>
+            {isSaving ? (
+              <RefreshCw className="w-4 h-4 text-white animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            <span>{isSaving ? 'SAVING...' : 'SAVE SETTINGS'}</span>
           </button>
         </div>
       </form>
     </Card>
   );
 };
+
+export default OpcGatewayConfigCard;

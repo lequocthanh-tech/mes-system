@@ -10,6 +10,7 @@ import { QualityInspectionReportTab } from '../components/reports/QualityInspect
 import { MaterialConsumptionReportTab } from '../components/reports/MaterialConsumptionReportTab';
 import { AlarmIncidentReportTab } from '../components/reports/AlarmIncidentReportTab';
 import { UserAuditTrailTab } from '../components/reports/UserAuditTrailTab';
+import { FoodSafetyTraceabilityTab } from '../components/reports/FoodSafetyTraceabilityTab';
 import { 
   FileSpreadsheet, 
   Calendar, 
@@ -22,6 +23,7 @@ import {
   Boxes, 
   Bell, 
   ShieldCheck, 
+  GitFork,
   X,
   Loader2
 } from 'lucide-react';
@@ -54,6 +56,7 @@ export const EnterpriseReportCenterView: React.FC = () => {
     if (activeSubTab === 'material_consumption') reportName = 'Material_Consumption_Report';
     if (activeSubTab === 'alarm_incident') reportName = 'Alarm_Incident_Report';
     if (activeSubTab === 'user_audit') reportName = 'User_Security_Audit_Trail';
+    if (activeSubTab === 'traceability') reportName = 'Food_Safety_Traceability_Report';
     await exportReportToExcel(reportName);
   };
 
@@ -63,6 +66,7 @@ export const EnterpriseReportCenterView: React.FC = () => {
     if (activeSubTab === 'material_consumption') reportName = 'Material Consumption Ledger';
     if (activeSubTab === 'alarm_incident') reportName = 'Alarm Incident Report';
     if (activeSubTab === 'user_audit') reportName = 'User Audit Trail';
+    if (activeSubTab === 'traceability') reportName = 'Food Safety Traceability Audit';
     await exportReportToPdf(reportName);
   };
 
@@ -305,6 +309,19 @@ export const EnterpriseReportCenterView: React.FC = () => {
           <ShieldCheck className="w-4 h-4 text-slate-700" />
           <span>User Audit Trail</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('traceability')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all hallmark-focus ${
+            activeSubTab === 'traceability'
+              ? 'border-slate-900 text-slate-900 bg-slate-50'
+              : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+          }`}
+        >
+          <GitFork className="w-4 h-4 text-slate-700" />
+          <span>Food Safety Traceability</span>
+        </button>
       </div>
 
       {/* SUB-TAB CONTENT DISPLAY */}
@@ -314,6 +331,7 @@ export const EnterpriseReportCenterView: React.FC = () => {
         {activeSubTab === 'material_consumption' && <MaterialConsumptionReportTab />}
         {activeSubTab === 'alarm_incident' && <AlarmIncidentReportTab />}
         {activeSubTab === 'user_audit' && <UserAuditTrailTab />}
+        {activeSubTab === 'traceability' && <FoodSafetyTraceabilityTab />}
       </div>
     </div>
   );

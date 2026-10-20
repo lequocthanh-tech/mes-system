@@ -17,15 +17,18 @@ import {
   CheckCircle2,
   Lock,
   PlusCircle,
-  RefreshCw
+  RefreshCw,
+  Settings
 } from 'lucide-react';
+import { ModuleTagMappingModal } from '../components/ModuleTagMappingModal';
 
 export type MaintenanceSubTab = 'inventory' | 'preventive' | 'transitions';
 
 export const Maintenance: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<MaintenanceSubTab>('inventory');
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
-  const { equipmentList, maintenanceLogs, transitionEvents, isEquipmentInterlocked, refreshData, isLoading } = useEquipment();
+  const [isTagModalOpen, setIsTagModalOpen] = useState<boolean>(false);
+  const { equipmentList, maintenanceLogs, transitionEvents, isEquipmentInterlocked, refreshData, isLoading, selectEquipment } = useEquipment();
 
 
   const totalAssets = equipmentList.length;
@@ -96,7 +99,7 @@ export const Maintenance: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Buttons: Manual Sync & Log Record Modal */}
+          {/* Action Buttons: Manual Sync, OPC UA Sensor Mapping & Log Record Modal */}
           <button
             type="button"
             onClick={() => refreshData()}
@@ -105,6 +108,16 @@ export const Maintenance: React.FC = () => {
           >
             <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Đồng bộ SQL</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsTagModalOpen(true)}
+            className="h-9 px-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 font-semibold text-xs flex items-center gap-1.5 rounded-xs hallmark-focus active:translate-y-px shadow-xs"
+            title="Cấu hình ánh xạ Kepware OPC UA Sensors cho động cơ và thiết bị (M-101, P-101...)"
+          >
+            <Settings className="w-3.5 h-3.5 text-slate-600" />
+            <span>CẤU HÌNH SENSOR THIẾT BỊ</span>
           </button>
 
           <button
@@ -174,7 +187,14 @@ export const Maintenance: React.FC = () => {
 
       {/* Sub-View Content */}
       <section aria-label="Maintenance View Content">
-        {activeSubTab === 'inventory' && <EquipmentInventory />}
+        {activeSubTab === 'inventory' && (
+          <EquipmentInventory
+            onDispatchToPreventive={(eqCode) => {
+              selectEquipment(eqCode);
+              setActiveSubTab('preventive');
+            }}
+          />
+        )}
         {activeSubTab === 'preventive' && <PreventiveMaintenance />}
         {activeSubTab === 'transitions' && <EquipmentAuditTrail />}
       </section>
@@ -183,6 +203,15 @@ export const Maintenance: React.FC = () => {
       <LogMaintenanceModal
         isOpen={isLogModalOpen}
         onClose={() => setIsLogModalOpen(false)}
+      />
+
+      {/* Equipment Sensor & OPC UA Tag Mapping Modal */}
+      <ModuleTagMappingModal
+        isOpen={isTagModalOpen}
+        onClose={() => setIsTagModalOpen(false)}
+        moduleKey="maintenance"
+        moduleTitle="CẤU HÌNH SENSOR THIẾT BỊ & BẢO TRÌ (M-101, P-101)"
+        onSaved={() => refreshData()}
       />
     </div>
   );

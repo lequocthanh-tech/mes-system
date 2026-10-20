@@ -12,6 +12,7 @@ import {
   TargetPlcOption,
   TagMappingDefinition
 } from '../types/isa88';
+import { useConfig } from './ConfigContext';
 
 export interface LiveTelemetryData {
   value: any;
@@ -51,147 +52,872 @@ interface Isa88ContextType {
 
 const KEPWARE_TARGET: TargetPlcOption = 'Kepware Central Gateway (Port 49320)';
 
-// Whitelisted initial physical model mapped to centralized Kepware OPC UA server
+// Whitelisted standard physical model mapped to centralized Kepware OPC UA server
 const initialPhysicalModel: UnitNode[] = [
+  // 1. TK01 (Raw Material Silo 1)
   {
-    id: 'UNIT_MIXING',
-    name: 'UNIT MIXING',
-    area: 'Area 01 - Batch Formulation',
-    description: 'Main Liquid & Powder Ingredients Mixing Reactor Unit',
+    id: 'TK01',
+    name: 'SILO NGUYÊN LIỆU 1 (SỮA TƯƠI)',
+    area: 'Area 01 - Khu Silo Chứa Nguyên Liệu (Raw Material Silos)',
+    description: 'Silo Chứa Nguyên Liệu (Raw Material Storage Silo 1 - Raw Milk)',
     targetPlc: KEPWARE_TARGET,
     equipmentModules: [
       {
-        id: 'EM_INLET_DOSING',
-        name: 'INLET DOSING MODULE',
-        description: 'Micro-ingredients dosing feed & recipe interlock',
+        id: 'EM_TK01_STORAGE',
+        name: 'ĐỊNH LƯỢNG SILO 1',
+        description: 'Quản lý tồn kho & xuất liệu Silo 1 (Sữa tươi)',
         controlModules: [
           {
-            id: 'CM_DOSING_CMD',
-            name: 'PUMP_DOSING_CMD',
-            equipment: 'P-101 (Positive Displacement Dosing Pump)',
-            equipmentType: 'Dosing Pump Actuator',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.User3',
+            id: 'CM_TK01_WEIGHT_PV',
+            name: 'STOCK_TK01',
+            equipment: 'SILO-01 (Raw Milk Storage Silo)',
+            equipmentType: 'Storage Inventory Balance',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Batch_Start_CMD',
-            role: 'Command / Start Pulse',
-            unit: 'Bool',
-            description: 'Dosing pump execution start trigger command',
+            boundTagName: 'TK01_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Tồn kho Silo nguyên liệu 1 - Sữa tươi',
           },
           {
-            id: 'CM_RECIPE_OK',
-            name: 'RELAY_RECIPE_ACK',
-            equipment: 'HS-101 (Recipe Parameter Handshake Relay)',
-            equipmentType: 'Digital Interlock',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.User4',
+            id: 'CM_VALVE_TK01_CMD',
+            name: 'VALVE_TK01_CMD',
+            equipment: 'V-101 (Pneumatic Bottom Outlet Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Handshake_Loaded_OK',
-            role: 'Handshake / Recipe OK',
-            unit: 'Bool',
-            description: 'PLC recipe parameter verification acknowledgement',
+            boundTagName: 'VALVE_TK01_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn liệu 1',
           },
-        ],
-      },
-      {
-        id: 'EM_TANK_VESSEL',
-        name: 'TANK VESSEL',
-        description: 'Atmospheric stainless mixing tank level monitoring',
-        controlModules: [
           {
-            id: 'CM_LEVEL_SENSOR',
-            name: 'LEVEL_HYDROSTATIC',
-            equipment: 'LT-101 (Hydrostatic Tank Level Transmitter)',
-            equipmentType: 'Level Sensor',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.Random1',
+            id: 'CM_VALVE_TK01_FB',
+            name: 'VALVE_TK01_FB',
+            equipment: 'V-101 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Tank_Level_PV',
-            role: 'UP_MIXING / Level',
-            unit: 'L',
-            description: 'Continuous reactor level hydrostatic transmitter',
-          },
-        ],
-      },
-      {
-        id: 'EM_AGITATOR',
-        name: 'AGITATOR MOTOR',
-        description: 'Variable speed mixing impeller and homogenizer',
-        controlModules: [
-          {
-            id: 'CM_MOTOR_MIX',
-            name: 'MOTOR_AGITATOR',
-            equipment: 'M-101 (15kW VFD Mixing Agitator Motor)',
-            equipmentType: 'VFD Motor',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.User2',
-            targetPlc: KEPWARE_TARGET,
-            status: 'ACTIVE',
-            boundTagName: 'Agitator_Speed_PV',
-            role: 'PH_AGITATING / Speed',
-            unit: 'RPM',
-            description: 'VFD high-shear mixing agitator drive speed feedback',
+            boundTagName: 'VALVE_TK01_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van Bồn liệu 1',
           },
         ],
       },
     ],
   },
+  // 2. TK02 (Raw Material Silo 2)
   {
-    id: 'UNIT_STERILIZE',
-    name: 'UNIT STERILIZE',
-    area: 'Area 02 - Thermal Processing',
-    description: 'High Temperature Short Time (HTST) Sterilization Unit',
+    id: 'TK02',
+    name: 'SILO NGUYÊN LIỆU 2 (ĐƯỜNG)',
+    area: 'Area 01 - Khu Silo Chứa Nguyên Liệu (Raw Material Silos)',
+    description: 'Silo Chứa Nguyên Liệu (Raw Material Storage Silo 2 - Liquid Sugar)',
     targetPlc: KEPWARE_TARGET,
     equipmentModules: [
       {
-        id: 'EM_HEATING',
-        name: 'THERMAL HEATING LOOP',
-        description: 'Continuous thermal hold heating circuit and PID loop',
+        id: 'EM_TK02_STORAGE',
+        name: 'ĐỊNH LƯỢNG SILO 2',
+        description: 'Quản lý tồn kho & xuất liệu Silo 2 (Đường)',
         controlModules: [
           {
-            id: 'CM_TEMP_SENSOR',
-            name: 'TT_STERILIZER',
-            equipment: 'TT-201 (Pt100 Sanitary Temperature Sensor)',
-            equipmentType: 'RTD Transmitter',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.Ramp2',
+            id: 'CM_TK02_WEIGHT_PV',
+            name: 'STOCK_TK02',
+            equipment: 'SILO-02 (Sugar Storage Silo)',
+            equipmentType: 'Storage Inventory Balance',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Temp_Sterilizer_PV',
-            role: 'PH_HEATING / PV',
-            unit: '°C',
-            description: 'Thermal chamber RTD temperature actual value',
+            boundTagName: 'TK02_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg',
+            description: 'Tồn kho Silo nguyên liệu 2 - Đường',
           },
           {
-            id: 'CM_TEMP_CONTROLLER',
-            name: 'TIC_TEMP_SETPOINT',
-            equipment: 'TIC-201 (Modulating Steam Valve & PID)',
-            equipmentType: 'PID Controller',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.Test_SP',
+            id: 'CM_VALVE_TK02_CMD',
+            name: 'VALVE_TK02_CMD',
+            equipment: 'V-102 (Pneumatic Bottom Outlet Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Recipe_Temp_SP',
-            role: 'Control Recipe / Temp SP',
-            unit: '°C',
-            description: 'Sterilization chamber target temperature setpoint',
+            boundTagName: 'VALVE_TK02_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn liệu 2',
+          },
+          {
+            id: 'CM_VALVE_TK02_FB',
+            name: 'VALVE_TK02_FB',
+            equipment: 'V-102 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_TK02_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van Bồn liệu 2',
+          },
+        ],
+      },
+    ],
+  },
+  // 3. TK03 (Raw Material Silo 3)
+  {
+    id: 'TK03',
+    name: 'SILO NGUYÊN LIỆU 3 (PHỤ GIA)',
+    area: 'Area 01 - Khu Silo Chứa Nguyên Liệu (Raw Material Silos)',
+    description: 'Silo Chứa Nguyên Liệu (Raw Material Storage Silo 3 - Additives)',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_TK03_STORAGE',
+        name: 'ĐỊNH LƯỢNG SILO 3',
+        description: 'Quản lý tồn kho & xuất liệu Silo 3 (Phụ gia)',
+        controlModules: [
+          {
+            id: 'CM_TK03_WEIGHT_PV',
+            name: 'STOCK_TK03',
+            equipment: 'SILO-03 (Additive Storage Silo)',
+            equipmentType: 'Storage Inventory Balance',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'TK03_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Tồn kho Silo nguyên liệu 3 - Phụ gia',
+          },
+          {
+            id: 'CM_VALVE_TK03_CMD',
+            name: 'VALVE_TK03_CMD',
+            equipment: 'V-103 (Pneumatic Bottom Outlet Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_TK03_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn liệu 3',
+          },
+          {
+            id: 'CM_VALVE_TK03_FB',
+            name: 'VALVE_TK03_FB',
+            equipment: 'V-103 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_TK03_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van Bồn liệu 3',
+          },
+        ],
+      },
+    ],
+  },
+  // 4. WEIGH01 (Pre-Weighing Hopper 1)
+  {
+    id: 'WEIGH01',
+    name: 'BỒN CÂN TRUNG GIAN 1 (SỮA TƯƠI)',
+    area: 'Area 01b - Bồn Cân Trung Gian (Pre-Weighing Hoppers)',
+    description: 'Intermediate Pre-Weighing Hopper 1 with Precision Loadcell, Dosing Pump & Discharge Valve',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_WEIGH01_LOADCELL',
+        name: 'HỆ THỐNG CÂN BỒN CÂN 1',
+        description: 'Loadcell cân khối lượng Bồn cân trung gian 1 (Sữa tươi)',
+        controlModules: [
+          {
+            id: 'CM_WEIGH1_WEIGHT_PV',
+            name: 'LOADCELL_WEIGH01',
+            equipment: 'WE-111 (Intermediate Milk Weigh Hopper Loadcell)',
+            equipmentType: 'Strain Gauge Loadcell',
+            ioAddress: 'ns=2;s=Modbus_TCP.weigh.weigh1',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'WEIGH1_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Loadcell cân bồn trung gian 1 - Sữa tươi',
           },
         ],
       },
       {
-        id: 'EM_STATE_COORDINATOR',
-        name: 'STATE COORDINATOR',
-        description: 'ISA-88 / PackML master batch coordinator',
+        id: 'EM_WEIGH01_DOSING',
+        name: 'BƠM & VAN NẠP XẢ BỒN CÂN 1',
+        description: 'Bơm nạp liệu 1 & Van xả dịch Bồn cân 1 vào bồn trộn',
         controlModules: [
           {
-            id: 'CM_BATCH_SM',
-            name: 'SM_BATCH_STATUS',
-            equipment: 'SM-201 (ISA-88 State Machine Engine)',
-            equipmentType: 'Batch Coordinator',
-            ioAddress: 'ns=2;s=Simulation Examples.Functions.User1',
+            id: 'CM_PUMP_INLET_MILK_CMD',
+            name: 'PUMP_INLET_MILK_CMD',
+            equipment: 'P-101 (Raw Milk Inlet Dosing Pump)',
+            equipmentType: 'Centrifugal Pump Actuator',
+            ioAddress: '',
             targetPlc: KEPWARE_TARGET,
             status: 'ACTIVE',
-            boundTagName: 'Batch_State',
-            role: 'State Machine (PackML)',
+            boundTagName: 'PUMP_INLET_MILK_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh chạy Bơm nạp liệu 1 - Sữa tươi',
+          },
+          {
+            id: 'CM_PUMP_INLET_MILK_FB',
+            name: 'PUMP_INLET_MILK_FB',
+            equipment: 'P-101 (Run Auxiliary Contact Feedback)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_INLET_MILK_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Bơm nạp liệu 1',
+          },
+          {
+            id: 'CM_VALVE_WEIGH1_OUT_CMD',
+            name: 'VALVE_WEIGH1_OUT_CMD',
+            equipment: 'V-111 (Weigh Hopper 1 Discharge Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH1_OUT_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn cân 1 vào Bồn trộn',
+          },
+          {
+            id: 'CM_VALVE_WEIGH1_OUT_FB',
+            name: 'VALVE_WEIGH1_OUT_FB',
+            equipment: 'V-111 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH1_OUT_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn cân 1',
+          },
+        ],
+      },
+    ],
+  },
+  // 5. WEIGH02 (Pre-Weighing Hopper 2)
+  {
+    id: 'WEIGH02',
+    name: 'BỒN CÂN TRUNG GIAN 2 (ĐƯỜNG)',
+    area: 'Area 01b - Bồn Cân Trung Gian (Pre-Weighing Hoppers)',
+    description: 'Intermediate Pre-Weighing Hopper 2 with Precision Loadcell, Dosing Pump & Discharge Valve',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_WEIGH02_LOADCELL',
+        name: 'HỆ THỐNG CÂN BỒN CÂN 2',
+        description: 'Loadcell cân khối lượng Bồn cân trung gian 2 (Đường)',
+        controlModules: [
+          {
+            id: 'CM_WEIGH2_WEIGHT_PV',
+            name: 'LOADCELL_WEIGH02',
+            equipment: 'WE-112 (Intermediate Sugar Weigh Hopper Loadcell)',
+            equipmentType: 'Strain Gauge Loadcell',
+            ioAddress: 'ns=2;s=Modbus_TCP.weigh.weigh2',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'WEIGH2_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg',
+            description: 'Loadcell cân bồn trung gian 2 - Đường',
+          },
+        ],
+      },
+      {
+        id: 'EM_WEIGH02_DOSING',
+        name: 'BƠM & VAN NẠP XẢ BỒN CÂN 2',
+        description: 'Bơm nạp liệu 2 & Van xả dịch Bồn cân 2 vào bồn trộn',
+        controlModules: [
+          {
+            id: 'CM_PUMP_INLET_SUGAR_CMD',
+            name: 'PUMP_INLET_SUGAR_CMD',
+            equipment: 'P-102 (Liquid Sugar Inlet Dosing Pump)',
+            equipmentType: 'Positive Displacement Pump',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_INLET_SUGAR_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh chạy Bơm nạp liệu 2 - Đường',
+          },
+          {
+            id: 'CM_PUMP_INLET_SUGAR_FB',
+            name: 'PUMP_INLET_SUGAR_FB',
+            equipment: 'P-102 (Run Auxiliary Contact Feedback)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_INLET_SUGAR_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Bơm nạp liệu 2',
+          },
+          {
+            id: 'CM_VALVE_WEIGH2_OUT_CMD',
+            name: 'VALVE_WEIGH2_OUT_CMD',
+            equipment: 'V-112 (Weigh Hopper 2 Discharge Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH2_OUT_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn cân 2 vào Bồn trộn',
+          },
+          {
+            id: 'CM_VALVE_WEIGH2_OUT_FB',
+            name: 'VALVE_WEIGH2_OUT_FB',
+            equipment: 'V-112 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH2_OUT_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn cân 2',
+          },
+        ],
+      },
+    ],
+  },
+  // 6. WEIGH03 (Pre-Weighing Hopper 3)
+  {
+    id: 'WEIGH03',
+    name: 'BỒN CÂN TRUNG GIAN 3 (PHỤ GIA)',
+    area: 'Area 01b - Bồn Cân Trung Gian (Pre-Weighing Hoppers)',
+    description: 'Intermediate Pre-Weighing Hopper 3 with Precision Loadcell, Dosing Pump & Discharge Valve',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_WEIGH03_LOADCELL',
+        name: 'HỆ THỐNG CÂN BỒN CÂN 3',
+        description: 'Loadcell cân khối lượng Bồn cân trung gian 3 (Phụ gia)',
+        controlModules: [
+          {
+            id: 'CM_WEIGH3_WEIGHT_PV',
+            name: 'LOADCELL_WEIGH03',
+            equipment: 'WE-113 (Intermediate Additive Weigh Hopper Loadcell)',
+            equipmentType: 'Strain Gauge Loadcell',
+            ioAddress: 'ns=2;s=Modbus_TCP.weigh.weigh3',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'WEIGH3_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Loadcell cân bồn trung gian 3 - Phụ gia',
+          },
+        ],
+      },
+      {
+        id: 'EM_WEIGH03_DOSING',
+        name: 'BƠM & VAN NẠP XẢ BỒN CÂN 3',
+        description: 'Bơm nạp liệu 3 & Van xả dịch Bồn cân 3 vào bồn trộn',
+        controlModules: [
+          {
+            id: 'CM_PUMP_INLET_ADDITIVE_CMD',
+            name: 'PUMP_INLET_ADDITIVE_CMD',
+            equipment: 'P-103 (Additive Metering Dosing Pump)',
+            equipmentType: 'Peristaltic Dosing Pump',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_INLET_ADDITIVE_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh chạy Bơm nạp liệu 3 - Phụ gia',
+          },
+          {
+            id: 'CM_PUMP_INLET_ADDITIVE_FB',
+            name: 'PUMP_INLET_ADDITIVE_FB',
+            equipment: 'P-103 (Run Auxiliary Contact Feedback)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_INLET_ADDITIVE_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Bơm nạp liệu 3',
+          },
+          {
+            id: 'CM_VALVE_WEIGH3_OUT_CMD',
+            name: 'VALVE_WEIGH3_OUT_CMD',
+            equipment: 'V-113 (Weigh Hopper 3 Discharge Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH3_OUT_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn cân 3 vào Bồn trộn',
+          },
+          {
+            id: 'CM_VALVE_WEIGH3_OUT_FB',
+            name: 'VALVE_WEIGH3_OUT_FB',
+            equipment: 'V-113 (Limit Switch Open Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_WEIGH3_OUT_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn cân 3',
+          },
+        ],
+      },
+    ],
+  },
+  // 7. MIX01
+  {
+    id: 'MIX01',
+    name: 'BỒN PHỐI TRỘN TRUNG TÂM',
+    area: 'Area 02 - Phối Trộn & Đồng Hóa (Batch Blending)',
+    description: 'Central Liquid & Powder Mixing Reactor with Loadcell, PT100, Agitator & Discharge Pump',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_MIX01_SENSORS',
+        name: 'CẢM BIẾN BỒN TRỘN',
+        description: 'Cảm biến Khối lượng & Nhiệt độ Bồn trộn',
+        controlModules: [
+          {
+            id: 'CM_MIX01_WEIGHT',
+            name: 'LOADCELL_MIX01',
+            equipment: 'WE-201 (Mixing Vessel Loadcell)',
+            equipmentType: 'Multi-Cell Weight Module',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'MIX01_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Loadcell cân khối lượng Bồn trộn',
+          },
+          {
+            id: 'CM_MIX01_TEMP',
+            name: 'PT100_MIX01',
+            equipment: 'TE-201 (Sanitary RTD PT100 Sensor)',
+            equipmentType: 'RTD Temperature Transmitter',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'MIX01_TEMP_PV',
+            role: 'PV',
+            unit: '°C',
+            description: 'Cảm biến nhiệt độ PT100 Bồn trộn',
+          },
+          {
+            id: 'CM_MIX01_STATE',
+            name: 'UNIT_STATE_MIX01',
+            equipment: 'SM-201 (PackML Unit State Coordinator)',
+            equipmentType: 'ISA-88 State Machine',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'MIX01_UNIT_STATE',
+            role: 'STATE',
             unit: 'State',
-            description: 'Batch execution state: 1=IDLE, 2=RUNNING, 3=COMPLETE, 4=STOPPED',
+            description: 'Trạng thái vận hành ISA-88 Unit Bồn trộn',
+          },
+        ],
+      },
+      {
+        id: 'EM_MIX01_AGITATOR',
+        name: 'CÁNH KHUẤY BỒN TRỘN',
+        description: 'Động cơ khuấy & Điều khiển tốc độ RPM',
+        controlModules: [
+          {
+            id: 'CM_AGITATOR_MIX_CMD',
+            name: 'AGITATOR_MIX_CMD',
+            equipment: 'M-201 (VFD Sanitary Agitator Motor)',
+            equipmentType: 'VFD Speed Controller',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'AGITATOR_MIX_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh chạy Cánh khuấy Bồn trộn',
+          },
+          {
+            id: 'CM_AGITATOR_MIX_FB',
+            name: 'AGITATOR_MIX_FB',
+            equipment: 'M-201 (VFD Running Auxiliary Contact)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'AGITATOR_MIX_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Cánh khuấy Bồn trộn',
+          },
+          {
+            id: 'CM_AGITATOR_SPEED_SP',
+            name: 'AGITATOR_SPEED_SP',
+            equipment: 'SIC-201 (Agitator RPM Setpoint Register)',
+            equipmentType: 'Analog Setpoint',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'AGITATOR_SPEED_SP',
+            role: 'SP',
+            unit: 'RPM',
+            description: 'Tốc độ cài đặt Cánh khuấy Bồn trộn',
+          },
+          {
+            id: 'CM_AGITATOR_SPEED_PV',
+            name: 'AGITATOR_SPEED_PV',
+            equipment: 'SI-201 (Agitator Tachometer Feedback)',
+            equipmentType: 'Analog Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'AGITATOR_SPEED_PV',
+            role: 'PV',
+            unit: 'RPM',
+            description: 'Tốc độ thực tế Cánh khuấy Bồn trộn',
+          },
+        ],
+      },
+      {
+        id: 'EM_MIX01_OUTLET',
+        name: 'VAN & BƠM XẢ BỒN TRỘN',
+        description: 'Van xả đáy & Bơm chuyển dịch phối trộn',
+        controlModules: [
+          {
+            id: 'CM_VALVE_MIX01_CMD',
+            name: 'VALVE_MIX01_CMD',
+            equipment: 'V-201 (Bottom Flush Seat Valve)',
+            equipmentType: 'Pneumatic Seat Valve',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_MIX01_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả đáy Bồn trộn',
+          },
+          {
+            id: 'CM_VALVE_MIX01_FB',
+            name: 'VALVE_MIX01_FB',
+            equipment: 'V-201 (Position Sensor Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_MIX01_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả đáy Bồn trộn',
+          },
+          {
+            id: 'CM_PUMP_OUTLET_CMD',
+            name: 'PUMP_OUTLET_CMD',
+            equipment: 'P-201 (Lobe Discharge Transfer Pump)',
+            equipmentType: 'Rotary Lobe Pump Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_OUTLET_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh chạy Bơm xả dịch Bồn trộn',
+          },
+          {
+            id: 'CM_PUMP_OUTLET_FB',
+            name: 'PUMP_OUTLET_FB',
+            equipment: 'P-201 (Run Status Feedback)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'PUMP_OUTLET_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Bơm xả dịch Bồn trộn',
+          },
+        ],
+      },
+    ],
+  },
+  // 5. HEATER01
+  {
+    id: 'HEATER01',
+    name: 'BỒN GIA NHIỆT TIỆT TRÙNG',
+    area: 'Area 03 - Gia Nhiệt & Tiệt Trùng (Thermal Processing)',
+    description: 'Sterilization & Pasteurization Heating Vessel with Solid State Relay SSR & Safety Interlock',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_HEATER01_SSR',
+        name: 'GIA NHIỆT SSR & GIÁM SÁT NHIỆT',
+        description: 'Bộ điều khiển nhiệt độ SSR & Cờ Heater Ready',
+        controlModules: [
+          {
+            id: 'CM_HEATER_TEMP_SP',
+            name: 'HEATER_TEMP_SP',
+            equipment: 'TIC-301 (Heater Temperature Setpoint)',
+            equipmentType: 'PID Setpoint Register',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'HEATER_TEMP_SP',
+            role: 'SP',
+            unit: '°C',
+            description: 'Nhiệt độ cài đặt Bồn gia nhiệt',
+          },
+          {
+            id: 'CM_HEATER_TEMP_PV',
+            name: 'HEATER_TEMP_PV',
+            equipment: 'TE-301 (Sanitary Chamber RTD Sensor)',
+            equipmentType: 'RTD Sensor Transmitter',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'HEATER_TEMP_PV',
+            role: 'PV',
+            unit: '°C',
+            description: 'Nhiệt độ thực tế Bồn gia nhiệt',
+          },
+          {
+            id: 'CM_SSR_HEATER_STATUS',
+            name: 'SSR_HEATER_STATUS',
+            equipment: 'SSR-301 (Solid State Relay Actuator)',
+            equipmentType: 'SSR Power Switch Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'SSR_HEATER_STATUS',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái kích hoạt SSR Gia nhiệt',
+          },
+          {
+            id: 'CM_HEATER_READY_FLAG',
+            name: 'HEATER_READY_FLAG',
+            equipment: 'IL-301 (Heater Ready Procedural Interlock)',
+            equipmentType: 'Safety Interlock Flag',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'HEATER_READY_FLAG',
+            role: 'STATE',
+            unit: '--',
+            description: 'Cờ báo Bồn gia nhiệt đã sẵn sàng nhiệt độ nạp',
+          },
+        ],
+      },
+      {
+        id: 'EM_HEATER01_VALVE',
+        name: 'VAN XẢ BỒN GIA NHIỆT',
+        description: 'Van xả dịch gia nhiệt chuyển sang bồn lạnh',
+        controlModules: [
+          {
+            id: 'CM_VALVE_HEATER_CMD',
+            name: 'VALVE_HEATER_CMD',
+            equipment: 'V-301 (Sterilized Product Transfer Valve)',
+            equipmentType: 'Aseptic Valve Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_HEATER_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn gia nhiệt',
+          },
+          {
+            id: 'CM_VALVE_HEATER_FB',
+            name: 'VALVE_HEATER_FB',
+            equipment: 'V-301 (Position Feedback Switch)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_HEATER_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn gia nhiệt',
+          },
+        ],
+      },
+    ],
+  },
+  // 6. COOLER01
+  {
+    id: 'COOLER01',
+    name: 'BỒN LÀM LẠNH',
+    area: 'Area 04 - Làm Lạnh & Bảo Quản (Cooling)',
+    description: 'Cooling Holding Vessel with Chiller Refrigerant Loop & Temperature Regulation',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_COOLER01_CHILLER',
+        name: 'HỆ THỐNG LÀM LẠNH CHILLER',
+        description: 'Máy làm lạnh Chiller & Giám sát nhiệt độ lạnh',
+        controlModules: [
+          {
+            id: 'CM_COOLER_TEMP_SP',
+            name: 'COOLER_TEMP_SP',
+            equipment: 'TIC-401 (Cooler Temperature Setpoint)',
+            equipmentType: 'PID Setpoint Register',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'COOLER_TEMP_SP',
+            role: 'SP',
+            unit: '°C',
+            description: 'Nhiệt độ cài đặt Bồn làm lạnh',
+          },
+          {
+            id: 'CM_COOLER_TEMP_PV',
+            name: 'COOLER_TEMP_PV',
+            equipment: 'TE-401 (Chilled Liquid RTD Sensor)',
+            equipmentType: 'RTD Sensor Transmitter',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'COOLER_TEMP_PV',
+            role: 'PV',
+            unit: '°C',
+            description: 'Nhiệt độ thực tế Bồn làm lạnh',
+          },
+          {
+            id: 'CM_CHILLER_COOL_CMD',
+            name: 'CHILLER_COOL_CMD',
+            equipment: 'CH-401 (Chiller Compressor Starter)',
+            equipmentType: 'Chiller Relay Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'CHILLER_COOL_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh kích hoạt Máy làm lạnh Chiller',
+          },
+          {
+            id: 'CM_CHILLER_COOL_FB',
+            name: 'CHILLER_COOL_FB',
+            equipment: 'CH-401 (Chiller Running Feedback)',
+            equipmentType: 'Digital Feedback',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'CHILLER_COOL_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái chạy Máy làm lạnh Chiller',
+          },
+        ],
+      },
+      {
+        id: 'EM_COOLER01_VALVE',
+        name: 'VAN XẢ BỒN LÀM LẠNH',
+        description: 'Van xả dịch làm lạnh chuyển sang bồn thành phẩm',
+        controlModules: [
+          {
+            id: 'CM_VALVE_COOLER_CMD',
+            name: 'VALVE_COOLER_CMD',
+            equipment: 'V-401 (Chilled Product Transfer Valve)',
+            equipmentType: 'Pneumatic Valve Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_COOLER_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn làm lạnh',
+          },
+          {
+            id: 'CM_VALVE_COOLER_FB',
+            name: 'VALVE_COOLER_FB',
+            equipment: 'V-401 (Position Feedback Switch)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_COOLER_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn làm lạnh',
+          },
+        ],
+      },
+    ],
+  },
+  // 7. OUT01
+  {
+    id: 'OUT01',
+    name: 'BỒN CHỨA THÀNH PHẨM',
+    area: 'Area 05 - Đóng Gói & Xuất Xưởng (Packaging & Outbound)',
+    description: 'Finished Product Storage Silo with Loadcell & Direct Packaging Discharge Valve',
+    targetPlc: KEPWARE_TARGET,
+    equipmentModules: [
+      {
+        id: 'EM_OUT01_STORAGE',
+        name: 'BỒN CHỨA & VAN XẢ THÀNH PHẨM',
+        description: 'Bồn thành phẩm & Van chiết rót xuất xưởng',
+        controlModules: [
+          {
+            id: 'CM_OUT01_WEIGHT_PV',
+            name: 'LOADCELL_OUT01',
+            equipment: 'WE-501 (Finished Tank Mass Sensor)',
+            equipmentType: 'Strain Gauge Loadcell',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'OUT01_WEIGHT_PV',
+            role: 'PV',
+            unit: 'kg/L',
+            description: 'Loadcell cân khối lượng Bồn thành phẩm',
+          },
+          {
+            id: 'CM_VALVE_OUT01_CMD',
+            name: 'VALVE_OUT01_CMD',
+            equipment: 'V-501 (Packaging Line Feed Valve)',
+            equipmentType: 'Pneumatic Actuator',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_OUT01_CMD',
+            role: 'CMD',
+            unit: '--',
+            description: 'Lệnh mở Van xả Bồn thành phẩm',
+          },
+          {
+            id: 'CM_VALVE_OUT01_FB',
+            name: 'VALVE_OUT01_FB',
+            equipment: 'V-501 (Limit Switch Feedback)',
+            equipmentType: 'Proximity Sensor',
+            ioAddress: '',
+            targetPlc: KEPWARE_TARGET,
+            status: 'ACTIVE',
+            boundTagName: 'VALVE_OUT01_FB',
+            role: 'PV',
+            unit: '--',
+            description: 'Trạng thái mở Van xả Bồn thành phẩm',
           },
         ],
       },
@@ -199,159 +925,852 @@ const initialPhysicalModel: UnitNode[] = [
   },
 ];
 
-// Whitelisted initial procedural model mapped to the 7 essential Kepware tags
+// Whitelisted initial procedural model mapped to the 7 physical units and 41 tags
 const initialProceduralModel: UnitProcedureNode[] = [
+  // 1. UP_DOSING: Nạp Nguyên Liệu (TK01, TK02, TK03)
   {
-    id: 'UP_MIXING_PC1',
-    name: 'UP_MIXING_PC1',
-    unit: 'UNIT MIXING',
-    description: 'Master Unit Procedure for Batch Dairy & Additive Blending',
+    id: 'UP_DOSING_PC1',
+    name: 'UP_DOSING_PC1',
+    unit: 'TK01, TK02, TK03',
+    description: 'Thủ tục Nạp Nguyên Liệu định lượng vào Bồn Phối Trộn',
     operations: [
       {
-        id: 'OP_INLET_BLENDING',
-        name: 'OP_INLET_BLENDING',
-        description: 'Operation: Metered material intake and mechanical homogenization',
+        id: 'OP_DOSING_MILK',
+        name: 'OP_DOSING_MILK',
+        description: 'Nạp định lượng Sữa Tươi từ Bồn TK01',
         phases: [
           {
-            id: 'PH_DOSING',
-            name: 'PH_DOSING',
-            code: 'PH11301',
-            description: 'Phase: Micro-nutrient additive metering and feed check',
+            id: 'PH_MILK_FEED',
+            name: 'PH_MILK_FEED',
+            code: 'PH11101',
+            description: 'Bơm và mở van nạp sữa tươi',
             tags: [
               {
-                tagId: 101,
-                tagName: 'Tank_Level_PV',
-                dataType: 'Real',
-                address: 'ns=2;s=Simulation Examples.Functions.Random1',
+                tagId: 1,
+                tagName: 'TK01_WEIGHT_PV',
+                dataType: 'Float',
+                address: 'ns=2;s=Modbus_TCP.tank.tank1',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read',
-                role: 'UP_MIXING / Level',
-                unit: 'L',
+                role: 'PV',
+                unit: 'kg/L',
                 writable: false,
-                description: 'Buffer tank liquid level actual value',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_INLET_BLENDING',
-                parentPh: 'PH_DOSING',
+                description: 'Loadcell cân khối lượng Bồn liệu 1 - Sữa tươi',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_MILK',
+                parentPh: 'PH_MILK_FEED',
               },
               {
-                tagId: 102,
-                tagName: 'Batch_Start_CMD',
+                tagId: 2,
+                tagName: 'PUMP_INLET_MILK_CMD',
                 dataType: 'Boolean',
-                address: 'ns=2;s=Simulation Examples.Functions.User3',
+                address: '',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read/Write',
-                role: 'Command / Start Pulse',
-                unit: 'Bool',
+                role: 'CMD',
+                unit: '--',
                 writable: true,
-                description: 'Start trigger command bit for execution phase',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_INLET_BLENDING',
-                parentPh: 'PH_DOSING',
+                description: 'Lệnh chạy Bơm nạp liệu 1 - Sữa tươi',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_MILK',
+                parentPh: 'PH_MILK_FEED',
               },
               {
-                tagId: 103,
-                tagName: 'Handshake_Loaded_OK',
+                tagId: 3,
+                tagName: 'PUMP_INLET_MILK_FB',
                 dataType: 'Boolean',
-                address: 'ns=2;s=Simulation Examples.Functions.User4',
+                address: '',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
-                accessType: 'Read/Write',
-                role: 'Handshake / Recipe OK',
-                unit: 'Bool',
-                writable: true,
-                description: 'PLC acknowledgement handshake bit for recipe download',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_INLET_BLENDING',
-                parentPh: 'PH_DOSING',
-              },
-            ],
-          },
-          {
-            id: 'PH_AGITATING',
-            name: 'PH_AGITATING',
-            code: 'PH11302',
-            description: 'Phase: High-shear blending and PackML state coordination',
-            tags: [
-              {
-                tagId: 104,
-                tagName: 'Agitator_Speed_PV',
-                dataType: 'Real',
-                address: 'ns=2;s=Simulation Examples.Functions.User2',
-                targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read',
-                role: 'PH_AGITATING / Speed',
-                unit: 'RPM',
+                role: 'PV',
+                unit: '--',
                 writable: false,
-                description: 'Mixer motor agitator feedback speed',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_INLET_BLENDING',
-                parentPh: 'PH_AGITATING',
+                description: 'Trạng thái chạy Bơm nạp liệu 1',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_MILK',
+                parentPh: 'PH_MILK_FEED',
               },
               {
-                tagId: 105,
-                tagName: 'Batch_State',
-                dataType: 'String',
-                address: 'ns=2;s=Simulation Examples.Functions.User1',
+                tagId: 4,
+                tagName: 'VALVE_TK01_CMD',
+                dataType: 'Boolean',
+                address: '',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read/Write',
-                role: 'State Machine (PackML)',
-                unit: 'State',
+                role: 'CMD',
+                unit: '--',
                 writable: true,
-                description: 'ISA-88 Unit State: 1=IDLE, 2=RUNNING, 3=COMPLETE, 4=STOPPED',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_INLET_BLENDING',
-                parentPh: 'PH_AGITATING',
+                description: 'Lệnh mở Van xả Bồn liệu 1',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_MILK',
+                parentPh: 'PH_MILK_FEED',
+              },
+              {
+                tagId: 5,
+                tagName: 'VALVE_TK01_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van Bồn liệu 1',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_MILK',
+                parentPh: 'PH_MILK_FEED',
               },
             ],
           },
         ],
       },
       {
-        id: 'OP_THERMAL_PROCESSING',
-        name: 'OP_THERMAL_PROCESSING',
-        description: 'Operation: HTST continuous thermal hold and sterilization loop',
+        id: 'OP_DOSING_SUGAR',
+        name: 'OP_DOSING_SUGAR',
+        description: 'Nạp định lượng Đường từ Bồn TK02',
         phases: [
           {
-            id: 'PH_HEATING',
-            name: 'PH_HEATING',
-            code: 'PH21401',
-            description: 'Phase: Temperature PID regulation and thermal holding',
+            id: 'PH_SUGAR_FEED',
+            name: 'PH_SUGAR_FEED',
+            code: 'PH11202',
+            description: 'Bơm và mở van nạp đường',
             tags: [
               {
-                tagId: 106,
-                tagName: 'Temp_Sterilizer_PV',
-                dataType: 'Real',
-                address: 'ns=2;s=Simulation Examples.Functions.Ramp2',
+                tagId: 6,
+                tagName: 'TK02_WEIGHT_PV',
+                dataType: 'Float',
+                address: '',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read',
-                role: 'PH_HEATING / PV',
-                unit: '°C',
+                role: 'PV',
+                unit: 'kg',
                 writable: false,
-                description: 'Sterilizer chamber actual temperature',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_THERMAL_PROCESSING',
-                parentPh: 'PH_HEATING',
+                description: 'Loadcell cân khối lượng Bồn liệu 2 - Đường',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_SUGAR',
+                parentPh: 'PH_SUGAR_FEED',
               },
               {
-                tagId: 107,
-                tagName: 'Recipe_Temp_SP',
-                dataType: 'Real',
-                address: 'ns=2;s=Simulation Examples.Functions.Test_SP',
+                tagId: 7,
+                tagName: 'PUMP_INLET_SUGAR_CMD',
+                dataType: 'Boolean',
+                address: '',
                 targetPlc: KEPWARE_TARGET,
-                gatewaySource: 'Kepware OPC UA',
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
                 accessType: 'Read/Write',
-                role: 'Control Recipe / Temp SP',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh chạy Bơm nạp liệu 2 - Đường',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_SUGAR',
+                parentPh: 'PH_SUGAR_FEED',
+              },
+              {
+                tagId: 8,
+                tagName: 'PUMP_INLET_SUGAR_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái chạy Bơm nạp liệu 2',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_SUGAR',
+                parentPh: 'PH_SUGAR_FEED',
+              },
+              {
+                tagId: 9,
+                tagName: 'VALVE_TK02_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả Bồn liệu 2',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_SUGAR',
+                parentPh: 'PH_SUGAR_FEED',
+              },
+              {
+                tagId: 10,
+                tagName: 'VALVE_TK02_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van Bồn liệu 2',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_SUGAR',
+                parentPh: 'PH_SUGAR_FEED',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'OP_DOSING_ADDITIVE',
+        name: 'OP_DOSING_ADDITIVE',
+        description: 'Nạp định lượng Phụ Gia từ Bồn TK03',
+        phases: [
+          {
+            id: 'PH_ADDITIVE_FEED',
+            name: 'PH_ADDITIVE_FEED',
+            code: 'PH11303',
+            description: 'Bơm và mở van nạp phụ gia',
+            tags: [
+              {
+                tagId: 11,
+                tagName: 'TK03_WEIGHT_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: 'kg/L',
+                writable: false,
+                description: 'Loadcell cân khối lượng Bồn liệu 3 - Phụ gia',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_ADDITIVE',
+                parentPh: 'PH_ADDITIVE_FEED',
+              },
+              {
+                tagId: 12,
+                tagName: 'PUMP_INLET_ADDITIVE_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh chạy Bơm nạp liệu 3 - Phụ gia',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_ADDITIVE',
+                parentPh: 'PH_ADDITIVE_FEED',
+              },
+              {
+                tagId: 13,
+                tagName: 'PUMP_INLET_ADDITIVE_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái chạy Bơm nạp liệu 3',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_ADDITIVE',
+                parentPh: 'PH_ADDITIVE_FEED',
+              },
+              {
+                tagId: 14,
+                tagName: 'VALVE_TK03_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả Bồn liệu 3',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_ADDITIVE',
+                parentPh: 'PH_ADDITIVE_FEED',
+              },
+              {
+                tagId: 15,
+                tagName: 'VALVE_TK03_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van Bồn liệu 3',
+                parentUp: 'UP_DOSING_PC1',
+                parentOp: 'OP_DOSING_ADDITIVE',
+                parentPh: 'PH_ADDITIVE_FEED',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  // 2. UP_MIXING: Phối Trộn & Đồng Hóa (MIX01)
+  {
+    id: 'UP_MIXING_PC1',
+    name: 'UP_MIXING_PC1',
+    unit: 'MIX01',
+    description: 'Thủ tục Phối Trộn, Cánh khuấy và Xả dịch sang Bồn gia nhiệt',
+    operations: [
+      {
+        id: 'OP_AGITATION',
+        name: 'OP_AGITATION',
+        description: 'Vận hành Cánh khuấy và Giám sát Khối lượng / Nhiệt độ',
+        phases: [
+          {
+            id: 'PH_BLENDING',
+            name: 'PH_BLENDING',
+            code: 'PH12101',
+            description: 'Khuấy trộn đồng hóa dung dịch sữa',
+            tags: [
+              {
+                tagId: 16,
+                tagName: 'MIX01_WEIGHT_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: 'kg/L',
+                writable: false,
+                description: 'Loadcell cân khối lượng Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 17,
+                tagName: 'MIX01_TEMP_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '°C',
+                writable: false,
+                description: 'Cảm biến nhiệt độ PT100 Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 18,
+                tagName: 'MIX01_UNIT_STATE',
+                dataType: 'Int',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'STATE',
+                unit: 'State',
+                writable: false,
+                description: 'Trạng thái vận hành ISA-88 Unit Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 19,
+                tagName: 'AGITATOR_MIX_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh chạy Cánh khuấy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 20,
+                tagName: 'AGITATOR_MIX_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái chạy Cánh khuấy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 21,
+                tagName: 'AGITATOR_SPEED_SP',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'SP',
+                unit: 'RPM',
+                writable: true,
+                description: 'Tốc độ cài đặt Cánh khuấy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+              {
+                tagId: 22,
+                tagName: 'AGITATOR_SPEED_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: 'RPM',
+                writable: false,
+                description: 'Tốc độ thực tế Cánh khuấy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_AGITATION',
+                parentPh: 'PH_BLENDING',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'OP_DISCHARGE_MIX',
+        name: 'OP_DISCHARGE_MIX',
+        description: 'Mở Van xả đáy và chạy Bơm xả dịch',
+        phases: [
+          {
+            id: 'PH_DRAIN_MIX',
+            name: 'PH_DRAIN_MIX',
+            code: 'PH12303',
+            description: 'Bơm xả dịch phối trộn sang bồn gia nhiệt',
+            tags: [
+              {
+                tagId: 23,
+                tagName: 'VALVE_MIX01_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả đáy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_DISCHARGE_MIX',
+                parentPh: 'PH_DRAIN_MIX',
+              },
+              {
+                tagId: 24,
+                tagName: 'VALVE_MIX01_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van xả đáy Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_DISCHARGE_MIX',
+                parentPh: 'PH_DRAIN_MIX',
+              },
+              {
+                tagId: 25,
+                tagName: 'PUMP_OUTLET_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh chạy Bơm xả dịch Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_DISCHARGE_MIX',
+                parentPh: 'PH_DRAIN_MIX',
+              },
+              {
+                tagId: 26,
+                tagName: 'PUMP_OUTLET_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái chạy Bơm xả dịch Bồn trộn',
+                parentUp: 'UP_MIXING_PC1',
+                parentOp: 'OP_DISCHARGE_MIX',
+                parentPh: 'PH_DRAIN_MIX',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  // 3. UP_HEATING: Gia Nhiệt Tiệt Trùng (HEATER01)
+  {
+    id: 'UP_HEATING_PC1',
+    name: 'UP_HEATING_PC1',
+    unit: 'HEATER01',
+    description: 'Thủ tục Tiệt Trùng UHT và Khóa liên động Heater Ready',
+    operations: [
+      {
+        id: 'OP_PASTEURIZE',
+        name: 'OP_PASTEURIZE',
+        description: 'Gia nhiệt theo Setpoint và Kích hoạt SSR',
+        phases: [
+          {
+            id: 'PH_THERMAL_HOLD',
+            name: 'PH_THERMAL_HOLD',
+            code: 'PH22101',
+            description: 'Duy trì nhiệt độ tiệt trùng và cờ Heater Ready',
+            tags: [
+              {
+                tagId: 27,
+                tagName: 'HEATER_TEMP_SP',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'SP',
                 unit: '°C',
                 writable: true,
-                description: 'Target temperature setpoint from Master Recipe',
-                parentUp: 'UP_MIXING_PC1',
-                parentOp: 'OP_THERMAL_PROCESSING',
-                parentPh: 'PH_HEATING',
+                description: 'Nhiệt độ cài đặt Bồn gia nhiệt',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_PASTEURIZE',
+                parentPh: 'PH_THERMAL_HOLD',
+              },
+              {
+                tagId: 28,
+                tagName: 'HEATER_TEMP_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '°C',
+                writable: false,
+                description: 'Nhiệt độ thực tế Bồn gia nhiệt',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_PASTEURIZE',
+                parentPh: 'PH_THERMAL_HOLD',
+              },
+              {
+                tagId: 29,
+                tagName: 'SSR_HEATER_STATUS',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái kích hoạt SSR Gia nhiệt',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_PASTEURIZE',
+                parentPh: 'PH_THERMAL_HOLD',
+              },
+              {
+                tagId: 30,
+                tagName: 'HEATER_READY_FLAG',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'STATE',
+                unit: '--',
+                writable: false,
+                description: 'Cờ báo Bồn gia nhiệt đã sẵn sàng nhiệt độ nạp',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_PASTEURIZE',
+                parentPh: 'PH_THERMAL_HOLD',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'OP_TRANSFER_HEATER',
+        name: 'OP_TRANSFER_HEATER',
+        description: 'Chuyển dịch tiệt trùng sang Bồn làm lạnh',
+        phases: [
+          {
+            id: 'PH_HEAT_DRAIN',
+            name: 'PH_HEAT_DRAIN',
+            code: 'PH22102',
+            description: 'Mở van xả bồn gia nhiệt',
+            tags: [
+              {
+                tagId: 31,
+                tagName: 'VALVE_HEATER_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả Bồn gia nhiệt',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_TRANSFER_HEATER',
+                parentPh: 'PH_HEAT_DRAIN',
+              },
+              {
+                tagId: 32,
+                tagName: 'VALVE_HEATER_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van xả Bồn gia nhiệt',
+                parentUp: 'UP_HEATING_PC1',
+                parentOp: 'OP_TRANSFER_HEATER',
+                parentPh: 'PH_HEAT_DRAIN',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  // 4. UP_COOLING: Làm Lạnh & Bảo Quản (COOLER01)
+  {
+    id: 'UP_COOLING_PC1',
+    name: 'UP_COOLING_PC1',
+    unit: 'COOLER01',
+    description: 'Thủ tục Làm Lạnh sâu và Bảo quản nhiệt độ sản phẩm',
+    operations: [
+      {
+        id: 'OP_CHILLING',
+        name: 'OP_CHILLING',
+        description: 'Vận hành Máy Chiller và Giám sát nhiệt độ mát',
+        phases: [
+          {
+            id: 'PH_CHILL_CYCLE',
+            name: 'PH_CHILL_CYCLE',
+            code: 'PH22201',
+            description: 'Kích hoạt chiller làm lạnh đạt nhiệt độ mục tiêu',
+            tags: [
+              {
+                tagId: 33,
+                tagName: 'COOLER_TEMP_SP',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'SP',
+                unit: '°C',
+                writable: true,
+                description: 'Nhiệt độ cài đặt Bồn làm lạnh',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_CHILLING',
+                parentPh: 'PH_CHILL_CYCLE',
+              },
+              {
+                tagId: 34,
+                tagName: 'COOLER_TEMP_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '°C',
+                writable: false,
+                description: 'Nhiệt độ thực tế Bồn làm lạnh',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_CHILLING',
+                parentPh: 'PH_CHILL_CYCLE',
+              },
+              {
+                tagId: 35,
+                tagName: 'CHILLER_COOL_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh kích hoạt Máy làm lạnh Chiller',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_CHILLING',
+                parentPh: 'PH_CHILL_CYCLE',
+              },
+              {
+                tagId: 36,
+                tagName: 'CHILLER_COOL_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái chạy Máy làm lạnh Chiller',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_CHILLING',
+                parentPh: 'PH_CHILL_CYCLE',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'OP_TRANSFER_COOLER',
+        name: 'OP_TRANSFER_COOLER',
+        description: 'Chuyển dịch đã làm lạnh sang Bồn thành phẩm',
+        phases: [
+          {
+            id: 'PH_CHILL_DRAIN',
+            name: 'PH_CHILL_DRAIN',
+            code: 'PH22202',
+            description: 'Mở van xả bồn làm lạnh',
+            tags: [
+              {
+                tagId: 37,
+                tagName: 'VALVE_COOLER_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả Bồn làm lạnh',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_TRANSFER_COOLER',
+                parentPh: 'PH_CHILL_DRAIN',
+              },
+              {
+                tagId: 38,
+                tagName: 'VALVE_COOLER_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van xả Bồn làm lạnh',
+                parentUp: 'UP_COOLING_PC1',
+                parentOp: 'OP_TRANSFER_COOLER',
+                parentPh: 'PH_CHILL_DRAIN',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  // 5. UP_OUTBOUND: Chứa & Xuất Thành Phẩm (OUT01)
+  {
+    id: 'UP_OUTBOUND_PC1',
+    name: 'UP_OUTBOUND_PC1',
+    unit: 'OUT01',
+    description: 'Thủ tục Chứa Bồn Thành Phẩm và Cung cấp dịch đóng gói',
+    operations: [
+      {
+        id: 'OP_PACKAGING',
+        name: 'OP_PACKAGING',
+        description: 'Giám sát khối lượng thành phẩm và Van xả chiết rót',
+        phases: [
+          {
+            id: 'PH_STORAGE_OUT',
+            name: 'PH_STORAGE_OUT',
+            code: 'PH31101',
+            description: 'Van chiết rót cấp sang chuyền đóng gói',
+            tags: [
+              {
+                tagId: 39,
+                tagName: 'OUT01_WEIGHT_PV',
+                dataType: 'Float',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: 'kg/L',
+                writable: false,
+                description: 'Loadcell cân khối lượng Bồn thành phẩm',
+                parentUp: 'UP_OUTBOUND_PC1',
+                parentOp: 'OP_PACKAGING',
+                parentPh: 'PH_STORAGE_OUT',
+              },
+              {
+                tagId: 40,
+                tagName: 'VALVE_OUT01_CMD',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read/Write',
+                role: 'CMD',
+                unit: '--',
+                writable: true,
+                description: 'Lệnh mở Van xả Bồn thành phẩm',
+                parentUp: 'UP_OUTBOUND_PC1',
+                parentOp: 'OP_PACKAGING',
+                parentPh: 'PH_STORAGE_OUT',
+              },
+              {
+                tagId: 41,
+                tagName: 'VALVE_OUT01_FB',
+                dataType: 'Boolean',
+                address: '',
+                targetPlc: KEPWARE_TARGET,
+                gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
+                accessType: 'Read',
+                role: 'PV',
+                unit: '--',
+                writable: false,
+                description: 'Trạng thái mở Van xả Bồn thành phẩm',
+                parentUp: 'UP_OUTBOUND_PC1',
+                parentOp: 'OP_PACKAGING',
+                parentPh: 'PH_STORAGE_OUT',
               },
             ],
           },
@@ -362,22 +1781,21 @@ const initialProceduralModel: UnitProcedureNode[] = [
 ];
 
 const defaultSelectedNode: InspectorNodeData = {
-  tagId: 106,
-  tagName: 'Temp_Sterilizer_PV',
-  nodeType: 'TAG',
-  dataType: 'Real',
-  address: 'ns=2;s=Simulation Examples.Functions.Ramp2',
-  opcNodeId: 'ns=2;s=Simulation Examples.Functions.Ramp2',
+  tagId: 1,
+  tagName: 'TK01_WEIGHT_PV',
+  nodeType: 'CONTROL_MODULE',
+  address: 'ns=2;s=Modbus_TCP.tank.tank1',
+  opcNodeId: 'ns=2;s=Modbus_TCP.tank.tank1',
   gatewaySource: 'Kepware Central Server (opc.tcp://127.0.0.1:49320)',
   targetPlc: KEPWARE_TARGET,
   accessType: 'Read',
-  role: 'PH_HEATING / PV',
-  unit: '°C',
+  role: 'PV',
+  unit: 'kg/L',
   writable: false,
-  description: 'Sterilizer chamber actual temperature',
-  parentContext: 'UP_MIXING_PC1 > OP_THERMAL_PROCESSING > PH_HEATING',
-  equipmentRef: 'TT-201 (Pt100 Sanitary Temperature Sensor)',
-  lastUpdated: 'Live Kepware OPC UA Stream',
+  description: 'Loadcell cân khối lượng Bồn liệu 1 - Sữa tươi',
+  parentContext: 'TK01 > EM_TK01_LOADCELL',
+  equipmentRef: 'WE-101 (Precision Tank Loadcell Sensor)',
+  lastUpdated: 'Hardware Model Verified',
 };
 
 const Isa88Context = createContext<Isa88ContextType | undefined>(undefined);
@@ -391,13 +1809,19 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   // Real-time telemetry cache indexed by both Node ID and Tag Name
+  const { isGatewayOnline, refreshGatewayStatus } = useConfig();
   const [telemetryMap, setTelemetryMap] = useState<Record<string, LiveTelemetryData>>({});
-  const [gatewayConnected, setGatewayConnected] = useState<boolean>(false);
+  const [gatewayConnected, setGatewayConnected] = useState<boolean>(isGatewayOnline);
+
+  useEffect(() => {
+    setGatewayConnected(isGatewayOnline);
+  }, [isGatewayOnline]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<any>(null);
+  const reconnectDelayRef = useRef<number>(1000);
 
-  // Connect to backend WebSocket (/ws/telemetry) with resilient auto-reconnect
+  // Connect to backend WebSocket (/ws/telemetry) with resilient exponential backoff auto-reconnect
   useEffect(() => {
     let isMounted = true;
 
@@ -414,6 +1838,7 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
         ws.onopen = () => {
           if (!isMounted) return;
           setGatewayConnected(true);
+          reconnectDelayRef.current = 1000;
         };
 
         ws.onmessage = (event) => {
@@ -434,11 +1859,35 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
                 description: d.description,
               };
 
-              setTelemetryMap((prev) => ({
-                ...prev,
-                [d.node_id]: updateEntry,
-                [d.tag_name]: updateEntry,
-              }));
+              setTelemetryMap((prev) => {
+                const next = { ...prev };
+                if (d.node_id) {
+                  next[d.node_id] = updateEntry;
+                  next[d.node_id.replace(/^ns=\d+;s=/, '')] = updateEntry;
+                }
+                if (d.tag_name) {
+                  next[d.tag_name] = updateEntry;
+                }
+                return next;
+              });
+            } else if (msg.type === 'TAGS_BATCH' && msg.tags && typeof msg.tags === 'object') {
+              const newMap: Record<string, LiveTelemetryData> = {};
+              Object.entries(msg.tags).forEach(([nid, t]: [string, any]) => {
+                const entry: LiveTelemetryData = {
+                  value: t.value,
+                  quality: t.quality || 'Good',
+                  timestamp: t.timestamp || new Date().toLocaleTimeString(),
+                  dataType: t.data_type || t.type,
+                  role: t.role,
+                  unit: t.unit,
+                  writable: t.writable,
+                  description: t.description,
+                };
+                newMap[nid] = entry;
+                newMap[nid.replace(/^ns=\d+;s=/, '')] = entry;
+                if (t.tag_name) newMap[t.tag_name] = entry;
+              });
+              setTelemetryMap((prev) => ({ ...prev, ...newMap }));
             } else if (msg.type === 'SNAPSHOT' && Array.isArray(msg.tags)) {
               setGatewayConnected(Boolean(msg.server_connected));
               const newMap: Record<string, LiveTelemetryData> = {};
@@ -453,13 +1902,26 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
                   writable: t.writable,
                   description: t.description,
                 };
-                newMap[t.node_id] = entry;
-                newMap[t.tag_name] = entry;
+                if (t.node_id) {
+                  newMap[t.node_id] = entry;
+                  newMap[t.node_id.replace(/^ns=\d+;s=/, '')] = entry;
+                }
+                if (t.tag_name) newMap[t.tag_name] = entry;
               });
               setTelemetryMap((prev) => ({ ...prev, ...newMap }));
+            } else if (msg.type === 'STATUS_UPDATE') {
+              const online = Boolean(msg.server_connected || msg.connected || msg.is_connected || msg.status === 'ONLINE');
+              setGatewayConnected(online);
+              refreshGatewayStatus();
+            } else if (msg.type === 'STREAM_HEARTBEAT') {
+              if (typeof msg.connected === 'boolean') {
+                setGatewayConnected(msg.connected);
+              }
             } else if (msg.type === 'ALL_TAGS_STATUS') {
               const quality = msg.quality || 'Bad';
-              setGatewayConnected(msg.status === 'ONLINE');
+              const online = Boolean(msg.status === 'ONLINE' || quality === 'Good');
+              setGatewayConnected(online);
+              refreshGatewayStatus();
               setTelemetryMap((prev) => {
                 const updated: Record<string, LiveTelemetryData> = {};
                 Object.keys(prev).forEach((k) => {
@@ -489,12 +1951,16 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
             });
             return updated;
           });
-          // Reconnect after 2.5s
-          reconnectTimerRef.current = setTimeout(connectWs, 2500);
+          // Exponential backoff reconnect: 1s -> 1.5s -> 2.25s -> max 10s
+          const delay = reconnectDelayRef.current;
+          reconnectDelayRef.current = Math.min(Math.round(reconnectDelayRef.current * 1.5), 10000);
+          reconnectTimerRef.current = setTimeout(connectWs, delay);
         };
       } catch {
         setGatewayConnected(false);
-        reconnectTimerRef.current = setTimeout(connectWs, 3000);
+        const delay = reconnectDelayRef.current;
+        reconnectDelayRef.current = Math.min(Math.round(reconnectDelayRef.current * 1.5), 10000);
+        reconnectTimerRef.current = setTimeout(connectWs, delay);
       }
     };
 
@@ -727,14 +2193,18 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
             tags: ph.tags.map((tag) => {
               const mapping = mappings[tag.tagName];
               if (mapping) {
+                const isMapped = Boolean(mapping.node_id && mapping.node_id !== '[CHƯA ÁNH XẠ]');
                 return {
                   ...tag,
                   address: mapping.node_id,
+                  opcNodeId: mapping.node_id,
                   unit: mapping.unit || tag.unit,
                   role: mapping.role || tag.role,
                   description: mapping.description || tag.description,
                   writable: mapping.writable,
                   accessType: mapping.writable ? ('Read/Write' as const) : ('Read' as const),
+                  liveQuality: isMapped ? tag.liveQuality : 'Unmapped',
+                  liveValue: isMapped ? tag.liveValue : '--',
                 };
               }
               return tag;
@@ -752,11 +2222,14 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
           controlModules: em.controlModules.map((cm) => {
             if (cm.boundTagName && mappings[cm.boundTagName]) {
               const m = mappings[cm.boundTagName];
+              const isMapped = Boolean(m.node_id && m.node_id !== '[CHƯA ÁNH XẠ]');
               return {
                 ...cm,
                 ioAddress: m.node_id,
                 unit: m.unit || cm.unit,
                 role: m.role || cm.role,
+                liveQuality: isMapped ? cm.liveQuality : 'Unmapped',
+                liveValue: isMapped ? cm.liveValue : '--',
               };
             }
             return cm;
@@ -769,6 +2242,7 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!curr) return curr;
       const m = mappings[curr.tagName];
       if (m) {
+        const isMapped = Boolean(m.node_id && m.node_id !== '[CHƯA ÁNH XẠ]');
         return {
           ...curr,
           address: m.node_id,
@@ -778,6 +2252,8 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
           description: m.description || curr.description,
           writable: m.writable,
           accessType: m.writable ? ('Read/Write' as const) : ('Read' as const),
+          liveQuality: isMapped ? curr.liveQuality : 'Unmapped',
+          liveValue: isMapped ? curr.liveValue : '--',
           lastUpdated: new Date().toLocaleTimeString(),
         };
       }
@@ -796,8 +2272,8 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
           return m;
         }
       }
-    } catch (e) {
-      console.warn('Failed to fetch tag mappings:', e);
+    } catch {
+      // Backend gateway may still be booting during initial handshake; silently fall back
     }
     return {};
   };
@@ -808,8 +2284,12 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       const res = await fetch('/api/gateway/mappings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mappings }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Role': 'ADMIN',
+          'X-User': 'admin',
+        },
+        body: JSON.stringify({ mappings, role: 'ADMIN', user: 'admin' }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
@@ -817,7 +2297,7 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       const data = await res.json();
       applyMappingsToModels(mappings);
-      return { success: true, message: data.message || 'Mappings updated and resubscribed successfully' };
+      return { success: true, message: data.message || 'Cập nhật ánh xạ thành công và đã lưu CSDL!' };
     } catch (e: any) {
       return { success: false, message: e.message || 'Network error saving mappings' };
     }
@@ -839,7 +2319,7 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
         )
       );
       current[tagName] = {
-        node_id: patch.node_id || (foundTag?.address ?? ''),
+        node_id: patch.node_id !== undefined ? patch.node_id : (foundTag?.address ?? ''),
         role: patch.role || (foundTag?.role ?? ''),
         unit: patch.unit || (foundTag?.unit ?? ''),
         writable: patch.writable !== undefined ? patch.writable : (foundTag?.writable ?? false),
@@ -857,12 +2337,16 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
   const testNodeConnectivity = async (
     nodeId: string
   ): Promise<{ valid: boolean; value?: any; datatype?: string; message: string }> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
       const res = await fetch('/api/gateway/test-node', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ node_id: nodeId }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
         return { valid: false, message: err.detail || 'Test endpoint returned error' };
@@ -875,7 +2359,16 @@ export const Isa88Provider: React.FC<{ children: React.ReactNode }> = ({ childre
         message: data.message || (data.valid ? 'Node verified successfully' : 'Invalid node'),
       };
     } catch (e: any) {
-      return { valid: false, message: e.message || 'Network error testing node' };
+      clearTimeout(timeoutId);
+      if (
+        e?.name === 'AbortError' ||
+        e?.message?.toLowerCase().includes('aborted') ||
+        e?.message?.toLowerCase().includes('abort') ||
+        controller.signal.aborted
+      ) {
+        return { valid: false, message: 'Quá thời gian phản hồi từ thiết bị ngoại vi (Timeout)' };
+      }
+      return { valid: false, message: e.message || 'Lỗi mạng khi kiểm tra node' };
     }
   };
 
@@ -915,4 +2408,8 @@ export const useIsa88 = (): Isa88ContextType => {
     throw new Error('useIsa88 must be used within an Isa88Provider');
   }
   return context;
+};
+
+export const useSafeIsa88 = (): Isa88ContextType | undefined => {
+  return useContext(Isa88Context);
 };

@@ -2,13 +2,14 @@
  * contrast: WCAG AA Pass
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   BatchQualityRecord, 
   BatchQualityDetailItem, 
   QualityToleranceRule,
   BatchDisposition,
-  CapaTicket
+  CapaTicket,
+  QualitySummaryData
 } from '../types/quality';
 import * as api from '../services/api';
 
@@ -45,302 +46,16 @@ interface QualityContextType {
   setToDate: (d: string) => void;
   applyDateFilter: () => void;
   filteredBatchRecords: BatchQualityRecord[];
+
+  // Dynamic SPC Summary & HACCP State
+  summaryData: QualitySummaryData | null;
+  isSummaryLoading: boolean;
+  refreshSummary: () => Promise<void>;
 }
 
-const initialBatchRecords: BatchQualityRecord[] = [
-  {
-    reportId: 10,
-    reportCode: 'QAR-2026-010',
-    orderId: 'WO-2026-001',
-    recipeId: 'RCP-MILK-UHT-01',
-    recipeName: 'Fresh Pasteurized UHT Milk',
-    recipeVersion: 'v1.2',
-    startTime: '2026-09-07 08:00 AM',
-    endTime: '2026-09-07 08:45 AM',
-    totalProduced: 1000,
-    status: 'FAIL',
-    disposition: 'QUARANTINED',
-    avgError: 5.2,
-    checkedAt: '2026-09-07 08:46 AM',
-    reviewerNotes: 'Thermal sterilization cycle suffered heater element fluctuation at 08:24 AM, holding at 131.5°C instead of required 138.0°C. Critical Control Point CCP-1 failed.',
-    failingParameter: 'PH_HEATING (-4.71% deviation)',
-  },
-  {
-    reportId: 9,
-    reportCode: 'QAR-2026-009',
-    orderId: 'WO-2026-002',
-    recipeId: 'RCP-MILK-UHT-01',
-    recipeName: 'Fresh Pasteurized UHT Milk',
-    recipeVersion: 'v1.2',
-    startTime: '2026-09-06 02:15 PM',
-    endTime: '2026-09-06 03:00 PM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.4,
-    checkedAt: '2026-09-06 03:01 PM',
-    reviewerNotes: 'Batch fully compliant with ISO 22000 and HACCP specifications. All critical control points within tolerance bands.',
-  },
-  {
-    reportId: 8,
-    reportCode: 'QAR-2026-008',
-    orderId: 'WO-2026-003',
-    recipeId: 'RCP-CHOCO-02',
-    recipeName: 'Chocolate Flavored Dairy',
-    recipeVersion: 'v1.0',
-    startTime: '2026-09-06 09:30 AM',
-    endTime: '2026-09-06 10:15 AM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.6,
-    checkedAt: '2026-09-06 10:16 AM',
-    reviewerNotes: 'Viscosity and sweetness profile compliant. Quality certificate issued.',
-  },
-  {
-    reportId: 7,
-    reportCode: 'QAR-2026-007',
-    orderId: 'WO-2026-004',
-    recipeId: 'RCP-MILK-UHT-01',
-    recipeName: 'Fresh Pasteurized UHT Milk',
-    recipeVersion: 'v1.2',
-    startTime: '2026-09-05 03:00 PM',
-    endTime: '2026-09-05 03:45 PM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.3,
-    checkedAt: '2026-09-05 03:46 PM',
-    reviewerNotes: 'Microbiological hold clear. Automated packaging authorized.',
-  },
-  {
-    reportId: 6,
-    reportCode: 'QAR-2026-006',
-    orderId: 'WO-2026-005',
-    recipeId: 'RCP-CHOCO-02',
-    recipeName: 'Chocolate Flavored Dairy',
-    recipeVersion: 'v1.0',
-    startTime: '2026-09-05 10:00 AM',
-    endTime: '2026-09-05 10:45 AM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.5,
-    checkedAt: '2026-09-05 10:46 AM',
-    reviewerNotes: 'Routine QC inspection complete. All parameters green.',
-  },
-  {
-    reportId: 5,
-    reportCode: 'QAR-2026-005',
-    orderId: 'WO-2026-006',
-    recipeId: 'RCP-MILK-UHT-01',
-    recipeName: 'Fresh Pasteurized UHT Milk',
-    recipeVersion: 'v1.2',
-    startTime: '2026-09-04 01:30 PM',
-    endTime: '2026-09-04 02:15 PM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.7,
-    checkedAt: '2026-09-04 02:16 PM',
-    reviewerNotes: 'Standard release for retail distribution.',
-  },
-  {
-    reportId: 4,
-    reportCode: 'QAR-2026-004',
-    orderId: 'WO-2026-007',
-    recipeId: 'RCP-CHOCO-02',
-    recipeName: 'Chocolate Flavored Dairy',
-    recipeVersion: 'v1.0',
-    startTime: '2026-09-04 08:30 AM',
-    endTime: '2026-09-04 09:15 AM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.4,
-    checkedAt: '2026-09-04 09:16 AM',
-    reviewerNotes: 'All critical sensors in conformity.',
-  },
-  {
-    reportId: 3,
-    reportCode: 'QAR-2026-003',
-    orderId: 'WO-2026-008',
-    recipeId: 'RCP-MILK-UHT-01',
-    recipeName: 'Fresh Pasteurized UHT Milk',
-    recipeVersion: 'v1.2',
-    startTime: '2026-09-03 02:00 PM',
-    endTime: '2026-09-03 02:45 PM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.5,
-    checkedAt: '2026-09-03 02:46 PM',
-    reviewerNotes: 'Quality verified against national dairy standards.',
-  },
-  {
-    reportId: 2,
-    reportCode: 'QAR-2026-002',
-    orderId: 'WO-2026-009',
-    recipeId: 'RCP-CHOCO-02',
-    recipeName: 'Chocolate Flavored Dairy',
-    recipeVersion: 'v1.0',
-    startTime: '2026-09-03 09:00 AM',
-    endTime: '2026-09-03 09:45 AM',
-    totalProduced: 1000,
-    status: 'PASS',
-    disposition: 'RELEASED',
-    avgError: 0.3,
-    checkedAt: '2026-09-03 09:46 AM',
-    reviewerNotes: 'Verified clean run.',
-  },
-];
+const initialBatchRecords: BatchQualityRecord[] = [];
 
-const batchDetailsDatabase: Record<number, BatchQualityDetailItem[]> = {
-  10: [
-    {
-      qualityId: 1,
-      reportId: 10,
-      phaseId: 'PH_DISP_RAW',
-      parameterName: 'Raw Milk Dispensing',
-      unit: 'L',
-      setValue: 5000.0,
-      actualValue: 5002.5,
-      diffPercent: 0.05,
-      tolerancePercent: 0.5,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 2,
-      reportId: 10,
-      phaseId: 'PH_DISP_SUGAR',
-      parameterName: 'Sugar Dispensing',
-      unit: 'kg',
-      setValue: 350.0,
-      actualValue: 350.8,
-      diffPercent: 0.23,
-      tolerancePercent: 1.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 3,
-      reportId: 10,
-      phaseId: 'PH_MIXING',
-      parameterName: 'Agitation Speed',
-      unit: 'RPM',
-      setValue: 45.0,
-      actualValue: 44.8,
-      diffPercent: -0.44,
-      tolerancePercent: 2.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 4,
-      reportId: 10,
-      phaseId: 'PH_HEATING',
-      parameterName: 'Sterilization Temp (CCP-1)',
-      unit: '°C',
-      setValue: 138.0,
-      actualValue: 131.5,
-      diffPercent: -4.71,
-      tolerancePercent: 1.0,
-      result: 'FAIL',
-      isCritical: true,
-      haccpCategory: 'CRITICAL (CCP)',
-    },
-    {
-      qualityId: 5,
-      reportId: 10,
-      phaseId: 'PH_COOLING',
-      parameterName: 'Aseptic Storage Temp',
-      unit: '°C',
-      setValue: 4.0,
-      actualValue: 4.1,
-      diffPercent: 2.50,
-      tolerancePercent: 5.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-  ],
-  9: [
-    {
-      qualityId: 1,
-      reportId: 9,
-      phaseId: 'PH_DISP_RAW',
-      parameterName: 'Raw Milk Dispensing',
-      unit: 'L',
-      setValue: 5000.0,
-      actualValue: 5001.2,
-      diffPercent: 0.02,
-      tolerancePercent: 0.5,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 2,
-      reportId: 9,
-      phaseId: 'PH_DISP_SUGAR',
-      parameterName: 'Sugar Dispensing',
-      unit: 'kg',
-      setValue: 350.0,
-      actualValue: 350.2,
-      diffPercent: 0.06,
-      tolerancePercent: 1.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 3,
-      reportId: 9,
-      phaseId: 'PH_MIXING',
-      parameterName: 'Agitation Speed',
-      unit: 'RPM',
-      setValue: 45.0,
-      actualValue: 45.1,
-      diffPercent: 0.22,
-      tolerancePercent: 2.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-    {
-      qualityId: 4,
-      reportId: 9,
-      phaseId: 'PH_HEATING',
-      parameterName: 'Sterilization Temp (CCP-1)',
-      unit: '°C',
-      setValue: 138.0,
-      actualValue: 138.2,
-      diffPercent: 0.14,
-      tolerancePercent: 1.0,
-      result: 'PASS',
-      isCritical: true,
-      haccpCategory: 'CRITICAL (CCP)',
-    },
-    {
-      qualityId: 5,
-      reportId: 9,
-      phaseId: 'PH_COOLING',
-      parameterName: 'Aseptic Storage Temp',
-      unit: '°C',
-      setValue: 4.0,
-      actualValue: 4.0,
-      diffPercent: 0.00,
-      tolerancePercent: 5.0,
-      result: 'PASS',
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY',
-    },
-  ],
-};
+const batchDetailsDatabase: Record<number, BatchQualityDetailItem[]> = {};
 
 const initialToleranceRules: QualityToleranceRule[] = [
   {
@@ -395,36 +110,86 @@ const initialToleranceRules: QualityToleranceRule[] = [
   },
 ];
 
-const initialCapaTicket: CapaTicket = {
-  ticketId: '#CAPA-101',
-  title: 'Sterilization Loop H-201 Thermal Droop',
-  orderId: 'WO-2026-001',
-  reportCode: 'QAR-2026-010',
-  severity: 'CRITICAL',
-  rootCause: 'Heating resistor loop H-201 experienced SCR controller droop at 08:24 AM during pre-sterilize ramp, holding at 131.5°C instead of required 138.0°C.',
-  correctiveAction: 'Generate Maintenance Work Order WO-MAINT-402 to recalibrate TC-201 temperature transmitter and inspect SCR firing card before re-authorizing Line 01.',
-  assignedModule: 'Equipment & Maintenance (Module 07)',
-  status: 'OPEN',
-  createdAt: '2026-09-07 08:50 AM',
+const normativeCapaTicket: CapaTicket = {
+  ticketId: '#CAPA-NORMATIVE',
+  title: 'Hệ thống ổn định (Normative)',
+  orderId: 'NONE',
+  reportCode: 'NONE',
+  severity: 'INFO',
+  rootCause: 'Không phát hiện vi phạm chỉ tiêu an toàn thực phẩm hoặc giới hạn CCP.',
+  correctiveAction: 'SOP TUÂN THỦ TỐT. Tiếp tục duy trì giám sát quy trình chuẩn.',
+  assignedModule: 'Quality Assurance (Module 05)',
+  status: 'RESOLVED',
+  createdAt: '--',
 };
 
 const QualityContext = createContext<QualityContextType | undefined>(undefined);
 
 export const QualityProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [batchRecords, setBatchRecords] = useState<BatchQualityRecord[]>(initialBatchRecords);
-  const [selectedReportId, setSelectedReportId] = useState<number>(10);
+  const [selectedReportId, setSelectedReportId] = useState<number>(0);
   const [activeSubTab, setActiveSubTab] = useState<QualitySubTab>('overview');
   const [toleranceRules, setToleranceRules] = useState<QualityToleranceRule[]>(initialToleranceRules);
-  const [activeCapaTicket, setActiveCapaTicket] = useState<CapaTicket>(initialCapaTicket);
+  const [activeCapaTicket, setActiveCapaTicket] = useState<CapaTicket>(normativeCapaTicket);
 
-  const [fromDate, setFromDate] = useState<string>('2026-09-01');
-  const [toDate, setToDate] = useState<string>('2026-09-08');
-  const [appliedFilter, setAppliedFilter] = useState<{ from: string; to: string }>({
-    from: '2026-09-01',
-    to: '2026-09-08',
-  });
+  // Initialize dynamic date filter (past 30 days to today)
+  const getInitialDates = () => {
+    const now = new Date();
+    const past = new Date();
+    past.setDate(now.getDate() - 30);
+    return {
+      from: past.toISOString().split('T')[0],
+      to: now.toISOString().split('T')[0],
+    };
+  };
 
-  const fetchLiveReports = async () => {
+  const initialDates = getInitialDates();
+  const [fromDate, setFromDate] = useState<string>(initialDates.from);
+  const [toDate, setToDate] = useState<string>(initialDates.to);
+  const [appliedFilter, setAppliedFilter] = useState<{ from: string; to: string }>(initialDates);
+
+  // Dynamic Summary State
+  const [summaryData, setSummaryData] = useState<QualitySummaryData | null>(null);
+  const [isSummaryLoading, setIsSummaryLoading] = useState<boolean>(false);
+
+  const fetchSummary = useCallback(async (fDate: string, tDate: string) => {
+    setIsSummaryLoading(true);
+    try {
+      const res = await api.getQualitySummary({ from_date: fDate, to_date: tDate });
+      if (res && res.status === 'success') {
+        setSummaryData(res);
+
+        // Update Dynamic HACCP CAPA Card
+        if (res.has_breach && res.active_breaches && res.active_breaches.length > 0) {
+          const b = res.active_breaches[0];
+          setActiveCapaTicket({
+            ticketId: `#CAPA-${b.report_code || b.detail_id || 'ALERT'}`,
+            title: `CẢNH BÁO VI PHẠM: ${b.parameter_name} (Breach CCP / Defect)`,
+            orderId: b.order_code || 'WO-UNKNOWN',
+            reportCode: b.report_code || '--',
+            severity: b.is_ccp_breach ? 'CRITICAL' : 'MAJOR',
+            rootCause: `Phát hiện sai lệch tại thông số ${b.parameter_name} (Thực tế: ${b.actual_value}, Setpoint: ${b.setpoint}, Độ lệch: ${b.deviation_percent}%). Vi phạm tiêu chuẩn an toàn thực phẩm / giới hạn CCP.`,
+            correctiveAction: `Cách ly lô hàng ${b.order_code}, kích hoạt quy trình khắc phục CAPA và hiệu chuẩn thiết bị kiểm soát nhiệt độ/dòng chảy.`,
+            assignedModule: 'Quality Assurance (CCP Enforcement)',
+            status: 'OPEN',
+            createdAt: b.checked_at || '--',
+          });
+        } else {
+          setActiveCapaTicket(normativeCapaTicket);
+        }
+      }
+    } catch (err) {
+      console.warn('[QualityContext] Failed to load summary:', err);
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  }, []);
+
+  const refreshSummary = useCallback(async () => {
+    await fetchSummary(appliedFilter.from, appliedFilter.to);
+  }, [fetchSummary, appliedFilter]);
+
+  const fetchLiveReports = useCallback(async () => {
     try {
       const liveReports = await api.getReports();
       if (liveReports && liveReports.length > 0) {
@@ -446,91 +211,28 @@ export const QualityProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }));
         setBatchRecords(formatted);
         setSelectedReportId(formatted[0].reportId);
+      } else {
+        setBatchRecords([]);
+        setSelectedReportId(0);
       }
     } catch (err) {
       console.debug('[QualityContext] Loading reports error:', err);
+      setBatchRecords([]);
+      setSelectedReportId(0);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchLiveReports();
-  }, []);
+    fetchSummary(appliedFilter.from, appliedFilter.to);
+  }, [fetchLiveReports, fetchSummary, appliedFilter]);
 
   const selectedBatch = batchRecords.find((b) => b.reportId === selectedReportId) || batchRecords[0];
 
   // Dynamically resolve details for selected batch
-  const currentBatchDetails = batchDetailsDatabase[selectedReportId] || [
-    {
-      qualityId: 1,
-      reportId: selectedReportId,
-      phaseId: 'PH_DISP_RAW',
-      parameterName: 'Raw Milk Dispensing',
-      unit: 'L',
-      setValue: 5000.0,
-      actualValue: 5001.0,
-      diffPercent: 0.02,
-      tolerancePercent: 0.5,
-      result: 'PASS' as const,
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY' as const,
-    },
-    {
-      qualityId: 2,
-      reportId: selectedReportId,
-      phaseId: 'PH_DISP_SUGAR',
-      parameterName: 'Sugar Dispensing',
-      unit: 'kg',
-      setValue: 350.0,
-      actualValue: 350.3,
-      diffPercent: 0.09,
-      tolerancePercent: 1.0,
-      result: 'PASS' as const,
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY' as const,
-    },
-    {
-      qualityId: 3,
-      reportId: selectedReportId,
-      phaseId: 'PH_MIXING',
-      parameterName: 'Agitation Speed',
-      unit: 'RPM',
-      setValue: 45.0,
-      actualValue: 45.0,
-      diffPercent: 0.00,
-      tolerancePercent: 2.0,
-      result: 'PASS' as const,
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY' as const,
-    },
-    {
-      qualityId: 4,
-      reportId: selectedReportId,
-      phaseId: 'PH_HEATING',
-      parameterName: 'Sterilization Temp (CCP-1)',
-      unit: '°C',
-      setValue: 138.0,
-      actualValue: 138.1,
-      diffPercent: 0.07,
-      tolerancePercent: 1.0,
-      result: 'PASS' as const,
-      isCritical: true,
-      haccpCategory: 'CRITICAL (CCP)' as const,
-    },
-    {
-      qualityId: 5,
-      reportId: selectedReportId,
-      phaseId: 'PH_COOLING',
-      parameterName: 'Aseptic Storage Temp',
-      unit: '°C',
-      setValue: 4.0,
-      actualValue: 4.0,
-      diffPercent: 0.00,
-      tolerancePercent: 5.0,
-      result: 'PASS' as const,
-      isCritical: false,
-      haccpCategory: 'STANDARD QUALITY' as const,
-    },
-  ];
+  const currentBatchDetails = (selectedReportId && batchDetailsDatabase[selectedReportId])
+    ? batchDetailsDatabase[selectedReportId]
+    : [];
 
   // Critical CCP Failure Detection
   const hasCriticalFailure = currentBatchDetails.some(
@@ -544,6 +246,8 @@ export const QualityProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const applyDateFilter = () => {
     setAppliedFilter({ from: fromDate, to: toDate });
+    fetchSummary(fromDate, toDate);
+    fetchLiveReports();
   };
 
   const filteredBatchRecords = batchRecords.filter((b) => {
@@ -600,6 +304,21 @@ export const QualityProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
     );
 
+    const targetBatch = batchRecords.find((b) => b.reportId === reportId);
+    if (targetBatch) {
+      api.releaseQualityBatch({
+        order_code: targetBatch.orderId || `WO-${reportId}`,
+        report_code: targetBatch.reportCode || `QAR-${reportId}`,
+        disposition,
+        sign_off_by: 'Lead QA Specialist',
+        notes,
+      }).then(() => {
+        refreshSummary();
+      }).catch((err) => {
+        console.warn('[QualityContext] Release batch uplink warning:', err);
+      });
+    }
+
     return {
       success: true,
       message: `Batch #${reportId} disposition updated to ${disposition}.`,
@@ -635,6 +354,9 @@ export const QualityProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setToDate,
         applyDateFilter,
         filteredBatchRecords,
+        summaryData,
+        isSummaryLoading,
+        refreshSummary,
       }}
     >
       {children}

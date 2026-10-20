@@ -62,7 +62,11 @@ def get_customers() -> str:
 def get_active_orders() -> str:
     """Tra cứu danh sách toàn bộ các lệnh/đơn hàng sản xuất từ dbo.Orders."""
     try:
-        data = execute_query("SELECT OrderID, OrderCode, RecipeID, CustomerID, TargetVolume, CurrentStatus, ScheduledStartTime, ActualStartTime FROM dbo.Orders")
+        data = execute_query("""
+            SELECT Order_ID, OrderCode, Recipe_ID, TargetVolume, Status, ScheduledStartTime
+            FROM dbo.Orders
+            ORDER BY COALESCE(ScheduledStartTime, CreatedDate) DESC
+        """)
         if not data:
             return "Hiện tại không có đơn hàng nào trong hệ thống."
         return str(data)
@@ -72,23 +76,41 @@ def get_active_orders() -> str:
 
 @mcp.tool()
 def get_recipe_details(recipe_name_or_id: str = "") -> str:
-    """Tra cứu danh mục công thức sản xuất hoặc chi tiết thông số từ dbo.Recipes."""
+    """Tra cứu danh mục công thức sản xuất hoặc chi tiết thông số từ dbo.Recipes và dbo.Recipe_Detail."""
     try:
         if recipe_name_or_id:
-            sql = "SELECT RecipeID, RecipeCode, RecipeName, Version, Status, Target_Temp_Hot, Target_Temp_Cold FROM dbo.Recipes WHERE RecipeName LIKE ? OR CAST(RecipeID AS NVARCHAR) = ?"
-            data = execute_query(sql, (f"%{recipe_name_or_id}%", recipe_name_or_id))
+            sql = """
+                SELECT Recipe_ID, Recipe_Code, Recipe_Name, Target_Temp_Hot, Target_Temp_Cold 
+                FROM dbo.Recipes 
+                WHERE Recipe_Name LIKE ? OR Recipe_Code LIKE ? OR CAST(Recipe_ID AS NVARCHAR) = ?
+            """
+            recipes = execute_query(sql, (f"%{recipe_name_or_id}%", f"%{recipe_name_or_id}%", recipe_name_or_id))
+            if not recipes:
+                return "Không tìm thấy công thức yêu cầu."
+            for r in recipes:
+                r_id = r.get("Recipe_ID")
+                details = execute_query("""
+                    SELECT Material_Code, Material_Name, Percentage, TolerancePercent 
+                    FROM dbo.Recipe_Detail 
+                    WHERE Recipe_ID = ?
+                """, (r_id,))
+                r["details"] = details
+            return str(recipes)
         else:
-            data = execute_query("SELECT RecipeID, RecipeCode, RecipeName, Version, Status FROM dbo.Recipes")
-        return str(data) if data else "Không tìm thấy công thức yêu cầu."
+            data = execute_query("SELECT Recipe_ID, Recipe_Code, Recipe_Name, Target_Temp_Hot, Target_Temp_Cold FROM dbo.Recipes")
+            return str(data) if data else "Không tìm thấy công thức yêu cầu."
     except Exception as e:
         return f"Lỗi truy vấn công thức: {str(e)}"
 
 
 @mcp.tool()
 def check_material_inventory() -> str:
-    """Kiểm tra lượng tồn kho nguyên liệu (sữa thô, đường, phụ gia) trong Silo chứa."""
+    """Kiểm tra lượng tồn kho nguyên liệu (sữa thô, đường, phụ gia) trong Silo chứa từ dbo.Material_Stock."""
     try:
-        data = execute_query("SELECT MaterialID, MaterialCode, MaterialName, CurrentStock, Unit, MinThreshold, MaxCapacity, SiloLocation FROM dbo.Material_Stock")
+        data = execute_query("""
+            SELECT Material_Code, Material_Name, AssignedTank, CurrentStock, Unit, TankCapacity, MinSafetyThreshold 
+            FROM dbo.Material_Stock
+        """)
         return str(data) if data else "Không có dữ liệu tồn kho."
     except Exception as e:
         return f"Lỗi truy vấn kho nguyên liệu: {str(e)}"

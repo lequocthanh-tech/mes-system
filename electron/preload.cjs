@@ -1,4 +1,4 @@
-const { contextBridge, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 // Auto-scale UI by ~18% for 100% OS display scaling
 try {
@@ -20,5 +20,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return 1.18;
     }
   },
+  sendAppMounted: () => {
+    try {
+      ipcRenderer.send('app-mounted');
+    } catch (_) {}
+  },
+  sendSplashComplete: () => {
+    try {
+      ipcRenderer.send('splash-animation-complete');
+    } catch (_) {}
+  },
 });
+
 

@@ -126,7 +126,7 @@ class StoreAndForwardEngine:
                 pass
 
     def _flush_buffer_to_sql_server(self, sql_conn):
-        """Đọc từ SQLite đẩy vào SQL Server theo thứ tự thời gian (FIFO) rồi xóa buffer"""
+        """Đọc từ SQLite đẩy vào SQL Server theo thứ tự thời gian (FIFO) bằng executemany theo batch 100 dòng rồi xóa buffer"""
         with self.lock:
             with sqlite3.connect(BUFFER_DB_PATH) as sqlite_conn:
                 s_cur = sqlite_conn.cursor()
@@ -137,24 +137,24 @@ class StoreAndForwardEngine:
                     return
 
                 sql_cursor = sql_conn.cursor()
-                buffer_ids_to_delete = []
+                chunk_size = 100
+                insert_sql = "INSERT INTO dbo.PLC_Datalog (OrderCode, TagName, Value, Unit, ReadTime) VALUES (?, ?, ?, ?, ?)"
 
-                try:
-                    for row in rows:
-                        b_id, o_code, tag, val, unit, r_time = row
-                        sql_cursor.execute(
-                            "INSERT INTO dbo.PLC_Datalog (OrderCode, TagName, Value, Unit, ReadTime) VALUES (?, ?, ?, ?, ?)",
-                            (o_code, tag, val, unit, r_time)
-                        )
-                        buffer_ids_to_delete.append(b_id)
+                for i in range(0, len(rows), chunk_size):
+                    chunk = rows[i:i + chunk_size]
+                    batch_params = [(r[1], r[2], r[3], r[4], r[5]) for r in chunk]
+                    chunk_buffer_ids = [r[0] for r in chunk]
 
-                    sql_conn.commit()
+                    try:
+                        sql_cursor.executemany(insert_sql, batch_params)
+                        sql_conn.commit()
 
-                    # Xóa các dòng đã đồng bộ thành công khỏi SQLite
-                    placeholders = ",".join("?" for _ in buffer_ids_to_delete)
-                    s_cur.execute(f"DELETE FROM buffer_plc_datalog WHERE buffer_id IN ({placeholders})", buffer_ids_to_delete)
-                    sqlite_conn.commit()
-                except Exception:
-                    sql_conn.rollback()
+                        # Xóa các dòng đã đồng bộ thành công khỏi SQLite
+                        del_placeholders = ",".join("?" for _ in chunk_buffer_ids)
+                        s_cur.execute(f"DELETE FROM buffer_plc_datalog WHERE buffer_id IN ({del_placeholders})", chunk_buffer_ids)
+                        sqlite_conn.commit()
+                    except Exception:
+                        sql_conn.rollback()
+                        break
 
 db_engine = StoreAndForwardEngine()

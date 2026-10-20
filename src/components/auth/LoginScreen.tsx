@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types/auth';
 import { Shield, Lock, User as UserIcon, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
+import { loginUser } from '../../services/api';
 
 interface RolePreset {
   role: UserRole;
@@ -71,6 +72,13 @@ export const LoginScreen: React.FC = () => {
   const [bkLogoError, setBkLogoError] = useState<boolean>(false);
   const [titleLogoError, setTitleLogoError] = useState<boolean>(false);
 
+  React.useEffect(() => {
+    // Notify Electron main process that LoginScreen has mounted and painted
+    requestAnimationFrame(() => {
+      window.electronAPI?.sendAppMounted?.();
+    });
+  }, []);
+
   const handleSelectPreset = (preset: RolePreset) => {
     setRole(preset.role);
     setUsername(preset.defaultUser);
@@ -93,18 +101,51 @@ export const LoginScreen: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Simulate industrial security handshake (400ms)
-      await new Promise((resolve) => setTimeout(resolve, 400));
-
-      const cred = AUTHORIZED_CREDENTIALS[cleanUser];
-      if (!cred || cred.pass !== cleanPass || cred.role !== role) {
-        setErrorMessage('Invalid operator credentials or role mismatch.');
+      // 1. Authenticate against SQL Server dbo.Users via /api/auth/login
+      const res = await loginUser({ username: cleanUser, password: cleanPass, role });
+      if (res && res.status === 'success') {
+        const userRole = (res.role || role) as UserRole;
+        try {
+          localStorage.setItem('mes_auth_user', JSON.stringify({
+            username: res.username,
+            role: userRole,
+            fullName: res.fullName,
+            userId: res.userId,
+            assignedFacility: res.assignedFacility,
+          }));
+        } catch {}
+        await login(res.username, userRole, res.fullName);
+        return;
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || '';
+      // If server specifically rejected with 403 (suspended) or 401 (bad credentials), surface the real server rejection
+      if (errMsg.includes('thu hồi') || errMsg.includes('Suspended') || errMsg.includes('403') || errMsg.includes('deactivated')) {
+        setErrorMessage(errMsg.replace(/^Request failed with status \d+:\s*/, ''));
+        setIsLoading(false);
+        return;
+      }
+      if (errMsg.includes('không chính xác') || errMsg.includes('401') || errMsg.includes('Invalid') || errMsg.includes('not found')) {
+        setErrorMessage(errMsg.replace(/^Request failed with status \d+:\s*/, ''));
         setIsLoading(false);
         return;
       }
 
-      await login(cleanUser, role, cred.name);
-    } catch {
+      // 2. Graceful offline fallback only if backend server is unreachable
+      console.warn('[AUTH] Backend offline or unreachable, evaluating local authorized credentials fallback...');
+      const cred = AUTHORIZED_CREDENTIALS[cleanUser];
+      if (cred && cred.pass === cleanPass && cred.role === role) {
+        try {
+          localStorage.setItem('mes_auth_user', JSON.stringify({
+            username: cleanUser,
+            role: cred.role,
+            fullName: cred.name,
+          }));
+        } catch {}
+        await login(cleanUser, role, cred.name);
+        return;
+      }
+
       setErrorMessage('Invalid operator credentials or role mismatch.');
     } finally {
       setIsLoading(false);

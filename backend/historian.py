@@ -8,11 +8,12 @@ Handles:
 
 import sys
 import os
+import re
 import time
 import asyncio
 import logging
 from datetime import datetime, date
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 logger = logging.getLogger("MES_Historian")
 
@@ -41,14 +42,22 @@ def _json_serial(obj: Any) -> Any:
     return obj
 
 
+def _to_snake_case(key: str) -> str:
+    s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', key)
+    s = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+    s = re.sub(r'_+', '_', s)
+    return s.lower()
+
+
 def _format_row_dates(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Helper to convert datetime values in a dict to ISO strings."""
+    """Helper to convert datetime values in a dict to ISO strings and populate dual-key snake_case."""
     formatted = {}
     for k, v in row.items():
-        if isinstance(v, (datetime, date)):
-            formatted[k] = v.isoformat()
-        else:
-            formatted[k] = v
+        val = v.isoformat() if isinstance(v, (datetime, date)) else v
+        formatted[k] = val
+        sk = _to_snake_case(k)
+        if sk not in formatted:
+            formatted[sk] = val
     return formatted
 
 
@@ -75,7 +84,12 @@ def get_all_equipment() -> List[Dict[str, Any]]:
         ISNULL(Maintenance_Count, 0) AS Maintenance_Count,
         Last_Maintenance_Date,
         Next_Maintenance_Due,
-        Created_At
+        Created_At,
+        CASE WHEN COL_LENGTH('dbo.Equipment_Master', 'RatedCurrent') IS NOT NULL THEN ISNULL(RatedCurrent, 10.0) ELSE 10.0 END AS RatedCurrent,
+        CASE WHEN COL_LENGTH('dbo.Equipment_Master', 'MaxVibrationThreshold') IS NOT NULL THEN ISNULL(MaxVibrationThreshold, 4.5) ELSE 4.5 END AS MaxVibrationThreshold,
+        CASE WHEN COL_LENGTH('dbo.Equipment_Master', 'MaxTempThreshold') IS NOT NULL THEN ISNULL(MaxTempThreshold, 75.0) ELSE 75.0 END AS MaxTempThreshold,
+        CASE WHEN COL_LENGTH('dbo.Equipment_Master', 'Notes') IS NOT NULL THEN Notes ELSE '' END AS Notes,
+        CASE WHEN COL_LENGTH('dbo.Equipment_Master', 'Last_Update') IS NOT NULL THEN Last_Update ELSE Created_At END AS Last_Update
     FROM Equipment_Master
     ORDER BY EquipmentID ASC;
     """
@@ -97,6 +111,27 @@ def get_all_equipment() -> List[Dict[str, Any]]:
         row["Usage_Percent"] = usage_pct
         row["Health_Ratio"] = health_ratio
         row["Is_Interlocked"] = is_interlocked
+        # snake_case standardized aliases
+        row["equipment_id"] = row.get("EquipmentID")
+        row["equipment_code"] = row.get("EquipmentCode")
+        row["equipment_name"] = row.get("EquipmentName")
+        row["equipment_type"] = row.get("EquipmentType")
+        row["location"] = row.get("Location")
+        row["current_status"] = status
+        row["runtime_hours"] = runtime
+        row["total_starts"] = int(row.get("TotalStarts") or 0)
+        row["maintenance_limit_hours"] = limit
+        row["maintenance_count"] = int(row.get("Maintenance_Count") or 0)
+        row["last_maintenance_date"] = row.get("Last_Maintenance_Date")
+        row["next_maintenance_due"] = row.get("Next_Maintenance_Due")
+        row["usage_percent"] = usage_pct
+        row["health_ratio"] = health_ratio
+        row["is_interlocked"] = is_interlocked
+        row["rated_current"] = float(row.get("RatedCurrent") or 10.0)
+        row["max_vibration"] = float(row.get("MaxVibrationThreshold") or 4.5)
+        row["max_temp"] = float(row.get("MaxTempThreshold") or 75.0)
+        row["notes"] = row.get("Notes") or ""
+        row["last_update"] = row.get("Last_Update") or row.get("Created_At")
         results.append(row)
     return results
 
@@ -193,37 +228,51 @@ def get_maintenance_history(equipment_id: Optional[int] = None) -> List[Dict[str
         sql = """
         SELECT 
             m.Maintenance_ID,
+            m.Maintenance_ID AS log_id,
             m.EquipmentID,
-            e.EquipmentCode,
-            e.EquipmentName,
+            COALESCE(e.EquipmentCode, m.Equipment_Code) AS EquipmentCode,
+            COALESCE(e.EquipmentName, m.Equipment_Code) AS EquipmentName,
+            COALESCE(m.Ticket_Type, m.Maintenance_Type) AS Ticket_Type,
             m.Maintenance_Type,
+            COALESCE(m.Action_Taken, m.Description) AS Action_Taken,
             m.Description,
             m.Technician,
+            m.Spare_Parts_Used,
+            COALESCE(m.Serviced_At, m.Completed_Date) AS Serviced_At,
             m.Completed_Date,
             m.Cost_VND,
-            m.Status
+            m.Reset_Runtime_Flag,
+            m.Status,
+            m.Remarks
         FROM Equipment_Maintenance m
-        LEFT JOIN Equipment_Master e ON m.EquipmentID = e.EquipmentID
+        LEFT JOIN Equipment_Master e ON (m.EquipmentID = e.EquipmentID OR m.Equipment_Code = e.EquipmentCode)
         WHERE m.EquipmentID = ?
-        ORDER BY m.Completed_Date DESC;
+        ORDER BY COALESCE(m.Serviced_At, m.Completed_Date) DESC;
         """
         rows = execute_query(sql, (equipment_id,))
     else:
         sql = """
         SELECT 
             m.Maintenance_ID,
+            m.Maintenance_ID AS log_id,
             m.EquipmentID,
-            e.EquipmentCode,
-            e.EquipmentName,
+            COALESCE(e.EquipmentCode, m.Equipment_Code) AS EquipmentCode,
+            COALESCE(e.EquipmentName, m.Equipment_Code) AS EquipmentName,
+            COALESCE(m.Ticket_Type, m.Maintenance_Type) AS Ticket_Type,
             m.Maintenance_Type,
+            COALESCE(m.Action_Taken, m.Description) AS Action_Taken,
             m.Description,
             m.Technician,
+            m.Spare_Parts_Used,
+            COALESCE(m.Serviced_At, m.Completed_Date) AS Serviced_At,
             m.Completed_Date,
             m.Cost_VND,
-            m.Status
+            m.Reset_Runtime_Flag,
+            m.Status,
+            m.Remarks
         FROM Equipment_Maintenance m
-        LEFT JOIN Equipment_Master e ON m.EquipmentID = e.EquipmentID
-        ORDER BY m.Completed_Date DESC;
+        LEFT JOIN Equipment_Master e ON (m.EquipmentID = e.EquipmentID OR m.Equipment_Code = e.EquipmentCode)
+        ORDER BY COALESCE(m.Serviced_At, m.Completed_Date) DESC;
         """
         rows = execute_query(sql)
 
@@ -231,12 +280,17 @@ def get_maintenance_history(equipment_id: Optional[int] = None) -> List[Dict[str
 
 
 def record_maintenance_event(
-    equipment_id: int,
+    equipment_id: Union[int, str],
     maintenance_type: str,
     description: str,
     technician: str,
     cost_vnd: float = 0.0,
-    reset_runtime: bool = True
+    reset_runtime: bool = True,
+    ticket_type: Optional[str] = None,
+    spare_parts_used: Optional[str] = None,
+    action_taken: Optional[str] = None,
+    remarks: Optional[str] = None,
+    equipment_code: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Records a completed maintenance event:
@@ -244,44 +298,60 @@ def record_maintenance_event(
     2. Increments Maintenance_Count by 1 in dbo.Equipment_Master.
     3. Updates Last_Maintenance_Date = GETDATE() and Next_Maintenance_Due = DATEADD(month, 3, GETDATE()).
     4. If reset_runtime is True, resets Runtime_Hours to 0.0.
-    5. If status was MAINTENANCE_REQUIRED or FAULT, restores to 'STOP'.
+    5. If status was MAINTENANCE_REQUIRED, FAULT, or MAINTENANCE, restores to 'STOPPED'.
     """
-    eq = get_equipment_by_id_or_code(equipment_id)
+    lookup_val = equipment_code or equipment_id
+    eq = get_equipment_by_id_or_code(lookup_val)
+    if not eq and equipment_id:
+        eq = get_equipment_by_id_or_code(equipment_id)
     if not eq:
-        raise ValueError(f"Equipment with ID [{equipment_id}] does not exist.")
+        raise ValueError(f"Equipment with identifier [{lookup_val}] does not exist.")
 
     eq_code = eq["EquipmentCode"]
-    current_status = str(eq.get("CurrentStatus", "STOP")).strip().upper()
+    current_status = str(eq.get("CurrentStatus", "STOPPED")).strip().upper()
+
+    t_type = str(ticket_type or maintenance_type or "Preventive")
+    m_type = str(maintenance_type or t_type)
+    desc = str(description or remarks or "Bảo dưỡng định kỳ hoàn tất.")
+    act_taken = str(action_taken or desc)
+    parts = str(spare_parts_used or "")
+    rem = str(remarks or desc)
 
     # 1. Insert into Equipment_Maintenance
     insert_maint_sql = """
-    INSERT INTO Equipment_Maintenance (EquipmentID, Maintenance_Type, Description, Technician, Completed_Date, Cost_VND, Status)
-    VALUES (?, ?, ?, ?, GETDATE(), ?, 'Completed');
+    INSERT INTO Equipment_Maintenance (
+        EquipmentID, Equipment_Code, Maintenance_Type, Ticket_Type, Description,
+        Action_Taken, Technician, Spare_Parts_Used, Cost_VND, Completed_Date,
+        Serviced_At, Reset_Runtime_Flag, Status, Remarks
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE(), ?, 'Completed', ?);
     """
 
     # 2. Update Equipment_Master
-    # If resetting runtime, set Runtime_Hours = 0.0, otherwise keep existing
-    # Also reset status if currently flagged
     update_eq_sql = """
     UPDATE Equipment_Master
     SET Maintenance_Count = ISNULL(Maintenance_Count, 0) + 1,
         Last_Maintenance_Date = GETDATE(),
         Next_Maintenance_Due = DATEADD(month, 3, GETDATE()),
         Runtime_Hours = CASE WHEN ? = 1 THEN 0.0 ELSE Runtime_Hours END,
-        CurrentStatus = CASE WHEN CurrentStatus IN ('MAINTENANCE_REQUIRED', 'FAULT', 'MAINTENANCE') THEN 'STOP' ELSE CurrentStatus END
+        CurrentStatus = CASE WHEN CurrentStatus IN ('MAINTENANCE_REQUIRED', 'FAULT', 'MAINTENANCE', 'STOP') THEN 'STOPPED' ELSE CurrentStatus END
     WHERE EquipmentID = ?;
     """
 
     ops = [
-        (insert_maint_sql, (equipment_id, str(maintenance_type), str(description), str(technician), float(cost_vnd))),
+        (insert_maint_sql, (
+            equipment_id, eq_code, m_type, t_type, desc,
+            act_taken, str(technician), parts, float(cost_vnd),
+            1 if reset_runtime else 0, rem
+        )),
         (update_eq_sql, (1 if reset_runtime else 0, equipment_id))
     ]
 
     # If status changes, log transition
-    if current_status in ('MAINTENANCE_REQUIRED', 'FAULT', 'MAINTENANCE'):
+    if current_status in ('MAINTENANCE_REQUIRED', 'FAULT', 'MAINTENANCE', 'STOP'):
         insert_hist_sql = """
         INSERT INTO Equipment_Status_History (EquipmentID, Old_Status, New_Status, Duration_Seconds, Changed_At)
-        VALUES (?, ?, 'STOP', 0, GETDATE());
+        VALUES (?, ?, 'STOPPED', 0, GETDATE());
         """
         ops.append((insert_hist_sql, (equipment_id, current_status)))
 
@@ -292,7 +362,7 @@ def record_maintenance_event(
         user_name=technician,
         user_role="MAINTENANCE_TECH",
         action_name="MAINTENANCE_LOGGED",
-        detail=f"Recorded [{maintenance_type}] maintenance for [{eq_code}]. Cost: {cost_vnd:,.0f} VND. Reset Runtime: {reset_runtime}"
+        detail=f"Recorded [{t_type}] maintenance for [{eq_code}]. Spare Parts: [{parts}]. Cost: {cost_vnd:,.0f} VND. Reset Runtime: {reset_runtime}"
     )
 
     logger.info(f"Recorded maintenance event for Equipment [{eq_code}], count incremented.")
@@ -300,7 +370,8 @@ def record_maintenance_event(
         "status": "success",
         "EquipmentID": equipment_id,
         "EquipmentCode": eq_code,
-        "MaintenanceType": maintenance_type,
+        "MaintenanceType": m_type,
+        "TicketType": t_type,
         "ResetRuntime": reset_runtime
     }
 

@@ -24,6 +24,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import { BatchDisposition } from '../../types/quality';
+import { ESignatureModal } from '../ESignatureModal';
 
 export const QualityDetailTab: React.FC = () => {
   const { 
@@ -38,6 +39,7 @@ export const QualityDetailTab: React.FC = () => {
   const [notes, setNotes] = useState<string>(selectedBatch?.reviewerNotes || '');
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showPdfModal, setShowPdfModal] = useState<boolean>(false);
+  const [isEsignModalOpen, setIsEsignModalOpen] = useState<boolean>(false);
 
   const isPass = selectedBatch?.status === 'PASS';
   const currentDisposition: BatchDisposition = selectedBatch?.disposition || (isPass ? 'RELEASED' : 'QUARANTINED');
@@ -49,8 +51,15 @@ export const QualityDetailTab: React.FC = () => {
   };
 
   const handleApproveRelease = () => {
+    setIsEsignModalOpen(true);
+  };
+
+  const handleCommitRelease = () => {
     const res = dispositionBatch(selectedReportId, 'RELEASED', notes);
-    setFeedbackMsg({ text: res.message, type: res.success ? 'success' : 'error' });
+    setFeedbackMsg({ 
+      text: `Batch released with cryptographically verified electronic signature. ${res.message}`, 
+      type: res.success ? 'success' : 'error' 
+    });
     setTimeout(() => setFeedbackMsg(null), 4000);
   };
 
@@ -479,6 +488,19 @@ export const QualityDetailTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 21 CFR Part 11 Electronic Signature Modal */}
+      <ESignatureModal
+        isOpen={isEsignModalOpen}
+        onClose={() => setIsEsignModalOpen(false)}
+        onSuccess={handleCommitRelease}
+        actionName="BATCH_RELEASE"
+        fieldName="DISPOSITION"
+        oldValue={currentDisposition}
+        newValue="RELEASED"
+        defaultMeaning="Batch Release"
+        detail={`Quality disposition release for report [${selectedBatch?.reportCode || `RPT-${selectedReportId}`}]`}
+      />
     </div>
   );
 };

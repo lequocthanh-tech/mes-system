@@ -10,4 +10,5 @@ export const StockOverviewTanksTab: React.FC = () => {
   return <RealTimeStock />;
 };
 
+export { RealTimeStock as TankOverview };
 export default StockOverviewTanksTab;

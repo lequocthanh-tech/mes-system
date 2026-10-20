@@ -17,6 +17,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { UserRole } from '../../types/auth';
+import { getUsers, createUser, updateUserStatus } from '../../services/api';
 
 export interface UserRegistryItem {
   userId: string;
@@ -120,6 +121,7 @@ export const UserManagement: React.FC = () => {
   const { addAuditLog } = useReports();
 
   const [users, setUsers] = useState<UserRegistryItem[]>(initialUsers);
+  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -139,6 +141,24 @@ export const UserManagement: React.FC = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
+  const fetchUsers = React.useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const data = await getUsers();
+      if (Array.isArray(data) && data.length > 0) {
+        setUsers(data);
+      }
+    } catch (err) {
+      console.warn('[UserManagement] Could not load live users, keeping fallback:', err);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
   // Filtered Users List
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
@@ -157,7 +177,7 @@ export const UserManagement: React.FC = () => {
   }, [formData.role]);
 
   // Handle Form Submission: Provision New User
-  const handleProvisionUser = (e: React.FormEvent) => {
+  const handleProvisionUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.username.trim() || !formData.fullName.trim() || !formData.initialPassword.trim()) {
@@ -165,34 +185,47 @@ export const UserManagement: React.FC = () => {
       return;
     }
 
-    if (users.some((u) => u.username.toLowerCase() === formData.username.trim().toLowerCase())) {
-      showNotification('error', `Conflict: Username "${formData.username.trim()}" is already registered.`);
+    const cleanUname = formData.username.trim().toLowerCase();
+    if (users.some((u) => u.username.toLowerCase() === cleanUname)) {
+      showNotification('error', `Conflict: Username "${cleanUname}" is already registered.`);
       return;
     }
 
-    const newUser: UserRegistryItem = {
-      userId: formData.userId.trim(),
-      username: formData.username.trim().toLowerCase(),
-      fullName: formData.fullName.trim(),
-      role: formData.role,
-      securityClearance: activePermissions.clearanceLevel,
-      assignedFacility: formData.assignedFacility.trim(),
-      status: 'Active',
-      lastAuditAction: 'Account Initial Provisioning',
-      createdAt: new Date().toISOString().slice(0, 10),
-    };
-
-    setUsers((prev) => [newUser, ...prev]);
+    try {
+      await createUser({
+        userId: formData.userId.trim(),
+        username: cleanUname,
+        fullName: formData.fullName.trim(),
+        password: formData.initialPassword.trim(),
+        role: formData.role,
+        assignedFacility: formData.assignedFacility.trim(),
+      });
+      showNotification('success', `User [${formData.userId.trim()}] provisioned successfully into SQL Server.`);
+      await fetchUsers();
+    } catch (err: any) {
+      console.warn('[UserManagement] Live provisioning failed, updating local state:', err);
+      const newUser: UserRegistryItem = {
+        userId: formData.userId.trim(),
+        username: cleanUname,
+        fullName: formData.fullName.trim(),
+        role: formData.role,
+        securityClearance: activePermissions.clearanceLevel,
+        assignedFacility: formData.assignedFacility.trim(),
+        status: 'Active',
+        lastAuditAction: 'Account Initial Provisioning',
+        createdAt: new Date().toISOString().slice(0, 10),
+      };
+      setUsers((prev) => [newUser, ...prev]);
+      showNotification('success', `User [${newUser.userId}] provisioned (offline mode).`);
+    }
 
     // Record into FDA 21 CFR Part 11 Audit Trail
     addAuditLog(
       'USER_PROVISION',
-      `Provisioned user [${newUser.userId}] (${newUser.username}) with clearance [${newUser.securityClearance}]`,
+      `Provisioned user [${formData.userId.trim()}] (${cleanUname}) with clearance [${activePermissions.clearanceLevel}]`,
       user?.username || 'admin',
       user?.role || 'Admin'
     );
-
-    showNotification('success', `User [${newUser.userId}] provisioned successfully with ${newUser.role} credentials.`);
 
     // Reset Form with new random ID
     setFormData({
@@ -206,7 +239,7 @@ export const UserManagement: React.FC = () => {
   };
 
   // Toggle User Active / Suspended State
-  const handleToggleStatus = (targetUserId: string) => {
+  const handleToggleStatus = async (targetUserId: string) => {
     const targetUser = users.find((u) => u.userId === targetUserId);
     if (!targetUser) return;
 
@@ -217,11 +250,19 @@ export const UserManagement: React.FC = () => {
 
     const newStatus = targetUser.status === 'Active' ? 'Suspended' : 'Active';
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.userId === targetUserId ? { ...u, status: newStatus, lastAuditAction: `Status changed to ${newStatus}` } : u
-      )
-    );
+    try {
+      await updateUserStatus(targetUser.username, { status: newStatus });
+      showNotification('success', `User [${targetUser.userId}] (${targetUser.username}) status updated to ${newStatus} in SQL Server.`);
+      await fetchUsers();
+    } catch (err: any) {
+      console.warn('[UserManagement] Live status toggle failed, updating local state:', err);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.userId === targetUserId ? { ...u, status: newStatus, lastAuditAction: `Status changed to ${newStatus}` } : u
+        )
+      );
+      showNotification('success', `User [${targetUser.userId}] account set to ${newStatus} (offline mode).`);
+    }
 
     addAuditLog(
       'USER_STATUS_CHANGE',
@@ -229,8 +270,6 @@ export const UserManagement: React.FC = () => {
       user?.username || 'admin',
       user?.role || 'Admin'
     );
-
-    showNotification('success', `User [${targetUser.userId}] account set to ${newStatus}.`);
   };
 
   return (
@@ -269,6 +308,16 @@ export const UserManagement: React.FC = () => {
             <span className="text-sky-700 uppercase text-[10px]">GOVERNANCE:</span>
             <span className="font-bold text-sky-900">21 CFR §11.10</span>
           </div>
+          <button
+            type="button"
+            disabled={isLoadingUsers}
+            onClick={() => fetchUsers()}
+            className="bg-[#F8FAFC] border border-[#E2E8F0] px-2.5 py-1.5 flex items-center gap-1.5 hover:bg-slate-100 transition-colors hallmark-focus"
+            title="Đồng bộ danh sách người dùng từ SQL Server"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 text-slate-600 ${isLoadingUsers ? 'animate-spin' : ''}`} />
+            <span className="text-[10px] uppercase font-bold text-slate-700">{isLoadingUsers ? 'SYNCING...' : 'SYNC'}</span>
+          </button>
         </div>
       </div>
 

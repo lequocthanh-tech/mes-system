@@ -16,7 +16,10 @@ import {
   Cpu,
   Layers,
   Thermometer,
-  Boxes
+  Boxes,
+  Database,
+  Upload,
+  Zap
 } from 'lucide-react';
 
 export interface ActionProposal {
@@ -53,6 +56,22 @@ interface AICopilotDrawerProps {
   onClose: () => void;
 }
 
+export const COPILOT_MODELS = [
+  { id: 'meta-llama/llama-3.3-70b-instruct:free', label: '🆓 Llama 3.3 70B Instruct (Free)', badge: 'Free' },
+  { id: 'qwen/qwen-2.5-72b-instruct:free', label: '🆓 Qwen 2.5 72B Instruct (Free)', badge: 'Free' },
+  { id: 'google/gemini-2.0-flash-exp:free', label: '🆓 Gemini 2.0 Flash (Free)', badge: 'Free' },
+  { id: 'openai/gpt-4o-mini', label: '⚡ GPT-4o Mini (Tiết kiệm Token)', badge: 'Paid' },
+  { id: 'anthropic/claude-3.5-sonnet', label: '🧠 Claude 3.5 Sonnet (Chuyên sâu)', badge: 'Paid' },
+];
+
+export const RCA_ONE_CLICK_TYPES = [
+  { type: 'BATCH_CAMPAIGN_OPTIMIZE', label: '⚡ Tối ưu Chia mẻ & Năng lượng', desc: 'Kiểm toán mẻ 18.0L vs bồn 5.0L và cân bằng tải SSR' },
+  { type: 'BATCH_FAULT', label: '🧪 Chẩn đoán Mẻ lỗi & Sai lệch SP/PV', desc: 'Chẩn đoán chênh lệch thể tích và bù trừ tỷ lệ phối' },
+  { type: 'EQUIPMENT_PDM', label: '⚙️ Chẩn đoán Sức khỏe & RUL Thiết bị', desc: 'Rung động động cơ khuấy và suy thoái điện trở SSR' },
+  { type: 'ALARM_FLOOD', label: '🚨 Truy vết Chuỗi Alarm', desc: 'Lọc chuỗi báo động ISA-18.2 và cô lập nguyên nhân gốc' },
+  { type: 'DIGITAL_TWIN_DRIFT', label: '🔄 Phân tích Độ lệch SIMIT Digital Twin', desc: 'So sánh thực tế phần cứng vs mô hình ảo Cell 2' },
+];
+
 const QUICK_PROMPTS = [
   { label: 'Kiểm tra tồn kho Silo', icon: Boxes, query: 'Kiểm tra mức nguyên liệu tồn kho trong các bồn chứa Silo và cảnh báo bồn nào dưới mức an toàn.' },
   { label: 'Tiến độ đơn hàng', icon: Layers, query: 'Báo cáo danh sách các lệnh sản xuất đang chạy (RUNNING) hoặc sẵn sàng (READY) trong hệ thống.' },
@@ -74,8 +93,17 @@ export const AICopilotDrawer: React.FC<AICopilotDrawerProps> = ({ isOpen, onClos
   const [isLoading, setIsLoading] = useState(false);
   const [executingActionId, setExecutingActionId] = useState<string | null>(null);
   const [copilotStatus, setCopilotStatus] = useState<'online' | 'offline' | 'checking'>('checking');
-  const [activeModel, setActiveModel] = useState<string>('claude-3.5-sonnet');
+  const [activeModel, setActiveModel] = useState<string>('Llama 3.3 70B (Free)');
+  const [selectedModel, setSelectedModel] = useState<string>('meta-llama/llama-3.3-70b-instruct:free');
   const [toastNotification, setToastNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // On-Demand Data Dump RCA Workbench State
+  const [isRcaPanelOpen, setIsRcaPanelOpen] = useState<boolean>(false);
+  const [rcaDumpType, setRcaDumpType] = useState<string>('BATCH_CAMPAIGN_OPTIMIZE');
+  const [rcaOrderVolume, setRcaOrderVolume] = useState<number>(18.0);
+  const [rcaRawData, setRcaRawData] = useState<string>('');
+  const [isRcaRunning, setIsRcaRunning] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -119,6 +147,72 @@ export const AICopilotDrawer: React.FC<AICopilotDrawerProps> = ({ isOpen, onClos
     }
   }, [toastNotification]);
 
+  // Execute On-Demand Data Dump RCA
+  const handleRunRCA = async (overrideDumpType?: string) => {
+    const targetType = overrideDumpType || rcaDumpType;
+    setIsRcaRunning(true);
+    try {
+      const res = await fetch('/api/ai/analyze-data-dump', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dump_type: targetType,
+          order_volume: Number(rcaOrderVolume) || 18.0,
+          raw_data: rcaRawData,
+          selected_model: selectedModel
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Mã lỗi máy chủ HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data.model_used) {
+        const parts = data.model_used.split('/');
+        setActiveModel(parts[parts.length - 1] || data.model_used);
+      }
+
+      const rcaMessage: ChatMessageItem = {
+        id: `ai-rca-${Date.now()}`,
+        role: 'assistant',
+        content: data.report || 'Đã hoàn tất phân tích gói dữ liệu sự cố.',
+        timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      setMessages(prev => [...prev, rcaMessage]);
+      setToastNotification({
+        type: 'success',
+        message: `[RCA HOÀN TẤT] Phân tích (${targetType}) thành công với mô hình ${data.model_used || selectedModel}!`
+      });
+    } catch (err: any) {
+      setToastNotification({
+        type: 'error',
+        message: `[RCA THẤT BẠI] ${err.message || 'Lỗi khi gọi API phân tích sự cố'}`
+      });
+    } finally {
+      setIsRcaRunning(false);
+    }
+  };
+
+  // Raw Data File Upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setRcaRawData(content);
+        setToastNotification({
+          type: 'success',
+          message: `Đã nạp file ${file.name} (${content.length} ký tự)`
+        });
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Handle Send message
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputMessage).trim();
@@ -149,7 +243,8 @@ export const AICopilotDrawer: React.FC<AICopilotDrawerProps> = ({ isOpen, onClos
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: historyPayload
+          messages: historyPayload,
+          selected_model: selectedModel
         })
       });
 
@@ -397,49 +492,204 @@ export const AICopilotDrawer: React.FC<AICopilotDrawerProps> = ({ isOpen, onClos
         {/* ==================================================================== */}
         {/* DRAWER HEADER (HALLMARK INDUSTRIAL-WORKBENCH)                        */}
         {/* ==================================================================== */}
-        <div className="h-14 border-b border-slate-200 px-4 bg-slate-50 flex items-center justify-between shrink-0 select-none">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xs bg-slate-900 flex items-center justify-center text-white border border-slate-800 shadow-xs">
-              <Bot className="w-4 h-4 text-emerald-400" />
+        <div className="border-b border-slate-200 px-4 py-2.5 bg-slate-50 flex flex-col gap-2 shrink-0 select-none">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xs bg-slate-900 flex items-center justify-center text-white border border-slate-800 shadow-xs">
+                <Bot className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-xs text-slate-900 tracking-wider uppercase">
+                    MES OPERATIONS COPILOT
+                  </span>
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    {copilotStatus === 'online' ? 'ACTIVE' : 'OFFLINE'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                  <span>DISPATCH:</span>
+                  <span className="text-slate-800 font-semibold">{activeModel}</span>
+                  <span>•</span>
+                  <span>ISA-88 BATCH</span>
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-xs text-slate-900 tracking-wider uppercase">
-                  MES OPERATIONS COPILOT
-                </span>
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {copilotStatus === 'online' ? 'ACTIVE' : 'OFFLINE'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
-                <span>MODEL:</span>
-                <span className="text-slate-800 font-semibold">{activeModel}</span>
-                <span>•</span>
-                <span>ISA-88 BATCH</span>
-              </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsRcaPanelOpen(!isRcaPanelOpen)}
+                className={`h-7 px-2 font-mono text-[10px] font-bold border transition-none flex items-center gap-1 active:translate-y-px ${
+                  isRcaPanelOpen
+                    ? 'bg-sky-700 text-white border-sky-700'
+                    : 'bg-white hover:bg-slate-100 text-sky-800 border-sky-300'
+                }`}
+                title="Mở trạm chẩn đoán gói dữ liệu sự cố (Data Dump RCA)"
+              >
+                <Database className="w-3 h-3 text-sky-500" />
+                <span>{isRcaPanelOpen ? '[✕ ĐÓNG TRẠM RCA]' : '[📦 DATA DUMP RCA]'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClearChat}
+                title="Làm mới lịch sử chat"
+                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-xs transition-colors hallmark-focus"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                title="Đóng cửa sổ Copilot"
+                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-xs transition-colors hallmark-focus"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={handleClearChat}
-              title="Làm mới lịch sử chat"
-              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-xs transition-colors hallmark-focus"
+          {/* Model Selector Strip */}
+          <div className="flex items-center justify-between pt-1 border-t border-slate-200 text-xs font-mono">
+            <span className="text-[10px] text-slate-500 font-bold uppercase">MÔ HÌNH AI:</span>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="h-7 px-2 text-[11px] font-mono bg-white border border-slate-300 text-slate-900 font-semibold focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 transition-none"
             >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              title="Đóng cửa sổ Copilot"
-              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-xs transition-colors hallmark-focus"
-            >
-              <X className="w-4 h-4" />
-            </button>
+              {COPILOT_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
+
+        {/* ==================================================================== */}
+        {/* ON-DEMAND DATA DUMP RCA WORKBENCH                                    */}
+        {/* ==================================================================== */}
+        {isRcaPanelOpen && (
+          <div className="bg-slate-50 border-b-2 border-sky-600 p-3.5 space-y-3 font-mono text-xs animate-in slide-in-from-top-2 duration-150 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <div className="flex items-center gap-1.5">
+                <Database className="w-4 h-4 text-sky-700" />
+                <span className="font-bold text-slate-900 uppercase text-[11px] tracking-wide">
+                  TRẠM CHẨN ĐOÁN GÓI DỮ LIỆU SỰ CỐ (ON-DEMAND DATA DUMP RCA)
+                </span>
+              </div>
+              <span className="text-[9.5px] px-1.5 py-0.5 bg-sky-100 text-sky-800 border border-sky-300 font-bold">
+                ISA-88 &amp; ISA-18.2
+              </span>
+            </div>
+
+            {/* 5 One-Click Buttons */}
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-slate-500 uppercase font-bold">
+                CHẨN ĐOÁN NHANH 1-CLICK (KHÔNG TỐN TOKEN NỀN):
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {RCA_ONE_CLICK_TYPES.map((btn) => (
+                  <button
+                    key={btn.type}
+                    type="button"
+                    disabled={isRcaRunning}
+                    onClick={() => {
+                      setRcaDumpType(btn.type);
+                      handleRunRCA(btn.type);
+                    }}
+                    className={`p-2 text-left border transition-none font-mono text-[10.5px] flex flex-col justify-between active:translate-y-px ${
+                      rcaDumpType === btn.type
+                        ? 'bg-sky-50 border-sky-500 text-sky-950 font-bold ring-1 ring-sky-500'
+                        : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
+                    }`}
+                    title={btn.desc}
+                  >
+                    <span className="font-bold">{btn.label}</span>
+                    <span className="text-[9px] text-slate-500 font-normal truncate mt-0.5">{btn.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Raw Data Input Area */}
+            <div className="space-y-2 pt-1 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-500 uppercase font-bold">
+                  DỮ LIỆU THÔ (CSV / JSON / PLC LOG / OPC TAG DUMP):
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".csv,.json,.log,.txt"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-6 px-2 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[10px] font-bold flex items-center gap-1 transition-none"
+                  >
+                    <Upload className="w-2.5 h-2.5" />
+                    <span>[📂 CHỌN FILE]</span>
+                  </button>
+                  {rcaRawData && (
+                    <button
+                      type="button"
+                      onClick={() => setRcaRawData('')}
+                      className="text-[10px] text-rose-600 hover:text-rose-800 underline font-bold"
+                    >
+                      Xóa
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <textarea
+                rows={3}
+                value={rcaRawData}
+                onChange={(e) => setRcaRawData(e.target.value)}
+                placeholder="Dán bản tin cảnh báo Kepware, dữ liệu CSV hoặc JSON telemetry tại đây (để trống nếu muốn phân tích telemetry live từ hệ thống)..."
+                className="w-full p-2 text-[11px] font-mono bg-white border border-slate-300 text-slate-900 focus-visible:outline-2 focus-visible:outline-sky-600 focus-visible:outline-offset-2 transition-none resize-y"
+              />
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold shrink-0">SẢN LƯỢNG ĐƠN (L):</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.5"
+                    value={rcaOrderVolume}
+                    onChange={(e) => setRcaOrderVolume(parseFloat(e.target.value) || 0)}
+                    className="w-20 h-7 px-2 text-xs font-mono font-bold bg-white border border-slate-300 text-slate-900"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isRcaRunning}
+                  onClick={() => handleRunRCA()}
+                  className="h-8 px-4 bg-sky-700 hover:bg-sky-800 disabled:bg-slate-300 text-white font-mono font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-none shadow-xs"
+                >
+                  {isRcaRunning ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>ĐANG PHÂN TÍCH...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>[🔍 PHÂN TÍCH NGUYÊN NHÂN GỐC RỄ (RCA)]</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Global Toast Alert */}
         {toastNotification && (

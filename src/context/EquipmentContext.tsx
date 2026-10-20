@@ -6,13 +6,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Equipment, MaintenanceLog, StateTransitionEvent, OperatingStatus, ServiceActionType, EquipmentType, EquipmentLocation } from '../types/equipment';
 import { 
-
   getEquipment, 
   getEquipmentMaintenance, 
   createMaintenanceRecord, 
   updateEquipmentStatus, 
-  getEquipmentStatusHistory 
+  getEquipmentStatusHistory,
+  getEquipmentPerformance
 } from '../services/api';
+import { useConfig } from './ConfigContext';
+
+const useSafeConfig = () => {
+  try {
+    return useConfig();
+  } catch {
+    return null;
+  }
+};
 
 interface EquipmentContextType {
   equipmentList: Equipment[];
@@ -23,7 +32,7 @@ interface EquipmentContextType {
   registerEquipment: (eq: Omit<Equipment, 'lastStateUpdate'>) => void;
   updateEquipment: (id: string, updated: Partial<Equipment>) => void;
   deleteEquipment: (id: string) => void;
-  recordMaintenanceEvent: (log: Omit<MaintenanceLog, 'id'>) => { success: boolean; message: string };
+  recordMaintenanceEvent: (log: Omit<MaintenanceLog, 'id'>) => Promise<{ success: boolean; message: string }>;
   exportMaintenanceLogsToCsv: () => void;
   isEquipmentInterlocked: (eq: Equipment) => boolean;
   refreshData: () => Promise<void>;
@@ -53,14 +62,22 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSelectedEquipmentId(id);
   };
 
-  // Synchronize data from live SQL Server endpoints
+  // Synchronize data from live SQL Server endpoints and centralized Kepware telemetry
   const refreshData = useCallback(async () => {
     try {
-      const [eqs, mLogs, trans] = await Promise.all([
+      const [eqs, mLogs, trans, perfRes] = await Promise.all([
         getEquipment(),
         getEquipmentMaintenance(),
         getEquipmentStatusHistory(),
+        getEquipmentPerformance().catch(() => ({ data: [] })),
       ]);
+
+      const perfList = perfRes?.data || (Array.isArray(perfRes) ? perfRes : []);
+      const perfMap: Record<string, any> = {};
+      perfList.forEach((p: any) => {
+        const code = String(p.equipment_code || p.EquipmentCode || '').toUpperCase();
+        if (code) perfMap[code] = p;
+      });
 
       const mappedEquipment: Equipment[] = (eqs || []).map((r: any) => {
         const rawStatus = (r.CurrentStatus || 'STOP').toUpperCase();
@@ -73,14 +90,17 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             ? 'MAINTENANCE'
             : 'STOPPED';
 
+        const eqCodeUpper = String(r.EquipmentCode || '').toUpperCase();
+        const perf = perfMap[eqCodeUpper] || {};
+
         return {
           id: r.EquipmentCode,
           equipmentId: r.EquipmentID,
           name: r.EquipmentName,
           type: (r.EquipmentType as EquipmentType) || 'Centrifugal Pump',
           location: (r.Location as EquipmentLocation) || 'Line 1 - Mixing Unit',
-          plcTag: `ns=2;s=Line1.${r.EquipmentCode}`,
-          opcNodeId: `ns=2;s=Line1.${r.EquipmentCode}`,
+          plcTag: r.OpcNodeId || r.plcTag || '',
+          opcNodeId: r.OpcNodeId || r.opcNodeId || '',
           status: mappedStatus,
           runtimeHours: Number((r.Runtime_Hours || 0).toFixed(1)),
           maintenanceLimit: r.Maintenance_Limit_Hours || 500,
@@ -88,11 +108,25 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           totalStarts: r.TotalStarts || 0,
           lastMaintenanceDate: r.Last_Maintenance_Date,
           nextMaintenanceDue: r.Next_Maintenance_Due,
-          healthRatio: r.Health_Ratio ?? 100,
+          healthRatio: perf.health_index ?? (r.Runtime_Hours === 0 ? 100 : 100),
           usagePercent: r.Usage_Percent ?? 0,
-          isInterlocked: r.Is_Interlocked ?? false,
-          notes: `${r.Location || 'Plant Floor'} - Lượt khởi động: ${r.TotalStarts || 0}, Chu kỳ bảo trì: ${r.Maintenance_Count || 0}`,
+          isInterlocked: perf.is_interlocked ?? r.Is_Interlocked ?? false,
+          notes: r.Notes || `${r.Location || 'Plant Floor'} - Lượt khởi động: ${r.TotalStarts || 0}, Chu kỳ bảo trì: ${r.Maintenance_Count || 0}`,
           lastStateUpdate: r.Last_Maintenance_Date || new Date().toISOString(),
+          ratedCurrent: r.RatedCurrent != null ? Number(r.RatedCurrent) : 10.0,
+          rated_current: r.RatedCurrent != null ? Number(r.RatedCurrent) : 10.0,
+          maxVibrationThreshold: r.MaxVibrationThreshold != null ? Number(r.MaxVibrationThreshold) : 4.5,
+          maxTempThreshold: r.MaxTempThreshold != null ? Number(r.MaxTempThreshold) : 85.0,
+          is_valve: perf.is_valve ?? (eqCodeUpper.startsWith('VALVE_') || String(r.EquipmentType || '').toUpperCase().includes('VALVE')),
+          is_mapped: perf.is_mapped ?? false,
+          valve_state: perf.valve_state ?? '',
+          actualCurrent: perf.actual_current ?? 0.0,
+          actual_current: perf.actual_current ?? 0.0,
+          loadPercent: perf.load_percent ?? 0.0,
+          load_percent: perf.load_percent ?? 0.0,
+          vibrationRms: perf.vibration_rms ?? 0.0,
+          vibration_rms: perf.vibration_rms ?? 0.0,
+          vibrationSeverity: perf.vibration_severity ?? (perf.is_mapped ? 'GOOD' : 'UNMAPPED'),
         };
       });
       setEquipmentList(mappedEquipment);
@@ -108,9 +142,12 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         equipmentName: m.EquipmentName,
         technician: m.Technician,
         serviceAction: (m.Maintenance_Type as ServiceActionType) || 'Periodic Inspection',
-        servicedAt: m.Completed_Date ? m.Completed_Date.replace('T', ' ').substring(0, 19) : '',
-        resetRuntime: true,
-        remarks: m.Description,
+        ticketType: m.Ticket_Type || m.Maintenance_Type || 'Preventive',
+        sparePartsUsed: m.Spare_Parts_Used || '',
+        actionTaken: m.Action_Taken || m.Description || '',
+        servicedAt: m.Serviced_At ? m.Serviced_At.replace('T', ' ').substring(0, 19) : (m.Completed_Date ? m.Completed_Date.replace('T', ' ').substring(0, 19) : ''),
+        resetRuntime: m.Reset_Runtime_Flag !== false,
+        remarks: m.Remarks || m.Description || '',
         costVnd: m.Cost_VND,
         status: m.Status,
       }));
@@ -132,6 +169,10 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [selectedEquipmentId]);
 
+  const config = useSafeConfig();
+  const sqlOnline = config?.sqlConfig?.connectionState === 'connected';
+  const prevSqlOnlineRef = React.useRef<boolean>(false);
+
   // Initial fetch and continuous 6-second heartbeat sync
   useEffect(() => {
     setIsLoading(true);
@@ -143,6 +184,15 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     return () => clearInterval(poll);
   }, [refreshData]);
+
+  // Immediate re-fetch upon SQL Server transition from disconnected to connected
+  useEffect(() => {
+    if (sqlOnline && !prevSqlOnlineRef.current) {
+      console.log('[EquipmentContext] SQL Server transitioned online - triggering immediate refreshData...');
+      refreshData();
+    }
+    prevSqlOnlineRef.current = sqlOnline;
+  }, [sqlOnline, refreshData]);
 
   const registerEquipment = (newEq: Omit<Equipment, 'lastStateUpdate'>) => {
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -206,7 +256,7 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   // Service Event Dispatch & Runtime Reset Logic
-  const recordMaintenanceEvent = (logData: Omit<MaintenanceLog, 'id'>) => {
+  const recordMaintenanceEvent = async (logData: Omit<MaintenanceLog, 'id'>): Promise<{ success: boolean; message: string }> => {
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const id = `LOG-${Date.now().toString().slice(-4)}`;
     const newLog: MaintenanceLog = {
@@ -220,18 +270,25 @@ export const EquipmentProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const intId = targetEq?.equipmentId || (logData.equipmentIntId || 1);
 
     // Call backend API to write to dbo.Equipment_Maintenance and update dbo.Equipment_Master
-    createMaintenanceRecord({
-      equipment_id: intId,
-      maintenance_type: logData.serviceAction,
-      description: logData.remarks,
-      technician: logData.technician,
-      cost_vnd: logData.costVnd || 0,
-      reset_runtime: logData.resetRuntime,
-    }).then(() => {
-      refreshData();
-    }).catch((err) => {
+    try {
+      await createMaintenanceRecord({
+        equipment_id: intId,
+        equipment_code: logData.equipmentId,
+        ticket_type: logData.ticketType || logData.serviceAction,
+        maintenance_type: logData.serviceAction,
+        description: logData.remarks,
+        action_taken: logData.actionTaken || logData.remarks,
+        spare_parts_used: logData.sparePartsUsed || '',
+        remarks: logData.remarks,
+        technician: logData.technician,
+        cost_vnd: logData.costVnd || 0,
+        reset_runtime: logData.resetRuntime,
+      });
+      await refreshData();
+    } catch (err) {
       console.warn('Backend maintenance record sync warning:', err);
-    });
+      throw err;
+    }
 
     // Optimistic UI update
     setMaintenanceLogs((prev) => [newLog, ...prev]);

@@ -63,6 +63,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       lastLogin: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
 
+    try {
+      localStorage.setItem('mes_auth_session', JSON.stringify(newUser));
+    } catch {}
+
     setUser(newUser);
     return true;
   };

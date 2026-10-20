@@ -279,3 +279,88 @@ def log_plc_datalog(order_code: str, tag_name: str, value: float, unit: Optional
         logger.debug(f"Failed to log PLC datalog: {e}")
         return False
 
+
+def update_tank_stock(
+    material_code: str,
+    quantity: Optional[float] = None,
+    current_stock: Optional[float] = None,
+    tank_id: Optional[str] = None,
+    mode: str = "add",
+    material_name: Optional[str] = None,
+    remark: str = "",
+    user: str = "Warehouse_Officer"
+) -> Dict[str, Any]:
+    """
+    Directly updates physical tank inventory in dbo.Material_Stock.
+    Strictly executes parameterized UPDATE and calls conn.commit() immediately.
+    """
+    conn = get_connection(timeout=3)
+    if not conn:
+        raise ConnectionError("Microsoft SQL Server database is offline")
+    
+    conn.autocommit = False
+    cursor = conn.cursor()
+    try:
+        mat = (material_code or "").strip().upper()
+        tank = (tank_id or "").strip().upper()
+
+        if mode == "set" or (current_stock is not None and quantity is None):
+            target_stock = float(current_stock if current_stock is not None else quantity)
+            cursor.execute("""
+                UPDATE dbo.Material_Stock
+                SET CurrentStock = ?,
+                    Last_Update = GETDATE()
+                WHERE UPPER(Material_Code) = ? OR UPPER(AssignedTank) = ?;
+            """, (target_stock, mat, tank))
+        else:
+            add_qty = float(quantity if quantity is not None else 0.0)
+            cursor.execute("""
+                UPDATE dbo.Material_Stock
+                SET CurrentStock = CurrentStock + ?,
+                    Total_Quantity = Total_Quantity + ?,
+                    Last_Update = GETDATE()
+                WHERE UPPER(Material_Code) = ? OR UPPER(AssignedTank) = ?;
+            """, (add_qty, add_qty, mat, tank))
+            
+            if add_qty > 0:
+                m_name = material_name or mat
+                cursor.execute("""
+                    INSERT INTO dbo.Material_Input (Material_Code, Material_Name, Quantity, Input_Time, Remark)
+                    VALUES (?, ?, ?, GETDATE(), ?);
+                """, (mat, m_name, add_qty, remark))
+
+        # Explicitly call conn.commit() immediately after execution to guarantee persistence to disk
+        conn.commit()
+
+        # Fetch updated record
+        cursor.execute("""
+            SELECT Material_Code, Material_Name, AssignedTank, CurrentStock, TankCapacity, Unit, MinSafetyThreshold, Last_Update
+            FROM dbo.Material_Stock
+            WHERE UPPER(Material_Code) = ? OR UPPER(AssignedTank) = ?;
+        """, (mat, tank))
+        row = cursor.fetchone()
+        res = {}
+        if row:
+            res = {
+                "material_code": row[0],
+                "material_name": row[1],
+                "assigned_tank": row[2],
+                "current_stock": float(row[3] or 0.0),
+                "tank_capacity": float(row[4] or 5.0),
+                "unit": row[5] or "L",
+                "min_threshold": float(row[6] or 0.5),
+                "last_update": str(row[7] or "")
+            }
+        cursor.close()
+        conn.close()
+        return res
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+                conn.close()
+            except Exception:
+                pass
+        raise e
+
+

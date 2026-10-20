@@ -87,6 +87,7 @@ export interface WorkOrder {
   customerId: number;
   customerCode?: string;
   customerName: string;
+  orderPriority?: number;
   recipeId: number;
   recipeCode?: string;
   recipeName: string;
@@ -97,6 +98,7 @@ export interface WorkOrder {
   status: WorkOrderStatus;
   targetUnit?: string;     // e.g. "UNIT MIXING"
   scheduledStartTime?: string;
+  createdDate?: string;
   startTime?: string;
   endTime?: string;
 }

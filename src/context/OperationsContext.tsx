@@ -12,29 +12,58 @@ import {
   BatchCommandType,
   Isa88BatchState,
   HandshakeStatus,
-  CipHygieneStatus
+  CipHygieneStatus,
+  getIsa88State,
+  PhaseDurationsMap,
+  ExecutionMode,
+  DigitalTwinDeviationRow,
+  DualRunBenchmarkSummary,
+  DeviationStatus
 } from '../types/operations';
 import { useMasterData } from './MasterDataContext';
+import { useGatewayStatus } from './ConfigContext';
 import * as api from '../services/api';
 
 interface OperationsContextType {
-  // SCADA Gateway & Target Process Cell
+  // SCADA Gateway & Target Process Cell & Execution Mode
   scadaGatewayUrl: string;
   isScadaConnected: boolean;
   targetProcessLine: string;
   setTargetProcessLine: (line: string) => void;
+  executionMode: ExecutionMode;
+  setExecutionMode: (mode: ExecutionMode) => void;
 
-  // Handshake Interlock
+  // Handshake Interlock & Dual-Run Flags
   handshakeStatus: HandshakeStatus;
   handshakeLoadedOk: boolean;
+  cell1Ack: boolean;
+  cell2Ack: boolean;
+  cell1Complete: boolean;
+  cell2Complete: boolean;
+  cell1Duration: string;
+  cell2Duration: string;
+
+  // Digital Twin Deviation Matrix & Benchmark Telemetry
+  deviationMatrix: DigitalTwinDeviationRow[];
+  benchmarkSummary: DualRunBenchmarkSummary | null;
+  refreshDeviationMatrix: () => Promise<void>;
+  completeCellSimulation: (cell: 'cell1' | 'cell2') => Promise<void>;
 
   // Clean-In-Place (CIP) Hygiene Interlock Gateway
   cipStatus: CipHygieneStatus;
+  setCipStatus: (status: CipHygieneStatus) => void;
   lastCipTimestamp: string;
   sterilityWindowHours: number;
   cipProgressRemaining: number;
   startCipCycle: () => Promise<void>;
   resetCipToExpired: () => void;
+
+  // Phase Durations Setup
+  phaseDurations: PhaseDurationsMap;
+  setPhaseDurations: React.Dispatch<React.SetStateAction<PhaseDurationsMap>>;
+  reloadPhaseDurations: () => Promise<void>;
+  updatePhaseDuration: (cell: 'cell1_physical' | 'cell2_simit', phaseCode: string, durationMinutes: number) => Promise<void>;
+  saveAllPhaseDurations: (newDurations: PhaseDurationsMap) => Promise<boolean>;
 
   // 3-Tier Queue
   newOrders: QueueOrder[];
@@ -70,44 +99,44 @@ const initialVerifications: ScadaSetpointVerification[] = [
     phaseId: 'PH_SUPPLYMILK',
     tagName: 'PH11101_SETPOINT_MILK',
     scriptedSetpoint: 700.0,
-    scadaActualReadback: 700.0,
+    scadaActualReadback: 0.0,
     unit: 'L',
     tolerance: 10.0,
-    status: 'Matched',
-    timestamp: '10:15:02 AM',
+    status: 'In Progress',
+    timestamp: '--:--:--',
   },
   {
     id: '2',
     phaseId: 'PH_SUPPLYSUGAR',
     tagName: 'PH11202_SETPOINT_SUGAR',
     scriptedSetpoint: 200.0,
-    scadaActualReadback: 200.0,
+    scadaActualReadback: 0.0,
     unit: 'kg',
     tolerance: 2.0,
-    status: 'Matched',
-    timestamp: '10:15:02 AM',
+    status: 'In Progress',
+    timestamp: '--:--:--',
   },
   {
     id: '3',
     phaseId: 'PH_HEATING',
     tagName: 'PH22101_SETPOINT_TEMP_HOT',
     scriptedSetpoint: 138.0,
-    scadaActualReadback: 138.1,
+    scadaActualReadback: 0.0,
     unit: '°C',
     tolerance: 1.0,
-    status: 'Matched',
-    timestamp: '10:15:03 AM',
+    status: 'In Progress',
+    timestamp: '--:--:--',
   },
   {
     id: '4',
     phaseId: 'PH_COOLING',
     tagName: 'PH22202_SETPOINT_TEMP_COLD',
     scriptedSetpoint: 4.0,
-    scadaActualReadback: 4.1,
+    scadaActualReadback: 0.0,
     unit: '°C',
     tolerance: 0.5,
-    status: 'Matched',
-    timestamp: '10:15:04 AM',
+    status: 'In Progress',
+    timestamp: '--:--:--',
   },
 ];
 
@@ -283,7 +312,7 @@ const initialTopologyCards: TopologyCellCard[] = [
   },
   {
     id: 'card_pc2_mix',
-    code: 'UP3000',
+    code: 'UP1000',
     name: 'UP_MIXING_PC2',
     unitLabel: 'Mixing Unit - SIMIT Digital Twin',
     targetCell: 'Process Cell 2 (SIMIT Digital Twin)',
@@ -291,14 +320,14 @@ const initialTopologyCards: TopologyCellCard[] = [
     operations: [
       {
         id: 'op5',
-        code: 'OP3001',
+        code: 'OP1001',
         name: 'OP_INLET_PC2',
         status: 'IDLE',
         phases: [
           { 
             id: 'ph10', 
-            code: 'PH31101', 
-            name: 'PH_SUPPLYMILK_PC2', 
+            code: 'PH_SUPPLYMILK_PC2', 
+            name: 'PH_SUPPLYMILK (SIMIT)', 
             status: 'IDLE', 
             activeStep: 'SIMIT Simulation Ready',
             equipmentModule: 'Simulated Dosing Pump P-201',
@@ -310,8 +339,8 @@ const initialTopologyCards: TopologyCellCard[] = [
           },
           { 
             id: 'ph11', 
-            code: 'PH31202', 
-            name: 'PH_SUPPLYSUGAR_PC2', 
+            code: 'PH_SUPPLYSUGAR_PC2', 
+            name: 'PH_SUPPLYSUGAR (SIMIT)', 
             status: 'IDLE', 
             activeStep: 'SIMIT Feeder Ready',
             equipmentModule: 'Simulated Rotary Valve V-203',
@@ -325,14 +354,14 @@ const initialTopologyCards: TopologyCellCard[] = [
       },
       {
         id: 'op6',
-        code: 'OP3002',
+        code: 'OP1002',
         name: 'OP_MIXING_PC2',
         status: 'IDLE',
         phases: [
           { 
             id: 'ph12', 
-            code: 'PH32101', 
-            name: 'PH_AGITATE_PC2', 
+            code: 'PH_AGITATE_PC2', 
+            name: 'PH_AGITATE (SIMIT)', 
             status: 'IDLE', 
             activeStep: 'SIMIT Motor Model Active',
             equipmentModule: 'Simulated Agitator Motor M-201',
@@ -348,7 +377,7 @@ const initialTopologyCards: TopologyCellCard[] = [
   },
   {
     id: 'card_pc2_sterilize',
-    code: 'UP4000',
+    code: 'UP2000',
     name: 'UP_STERILIZE_PC2',
     unitLabel: 'Sterilize Unit - SIMIT Digital Twin',
     targetCell: 'Process Cell 2 (SIMIT Digital Twin)',
@@ -356,14 +385,14 @@ const initialTopologyCards: TopologyCellCard[] = [
     operations: [
       {
         id: 'op7',
-        code: 'OP4001',
+        code: 'OP2001',
         name: 'OP_HEATING_PC2',
         status: 'IDLE',
         phases: [
           { 
             id: 'ph13', 
-            code: 'PH42101', 
-            name: 'PH_HEAT_PC2', 
+            code: 'PH_HEAT_PC2', 
+            name: 'PH_HEAT (SIMIT)', 
             status: 'IDLE', 
             activeStep: 'SIMIT Thermodynamic Loop',
             equipmentModule: 'Simulated Steam Exchanger TC-301',
@@ -377,14 +406,14 @@ const initialTopologyCards: TopologyCellCard[] = [
       },
       {
         id: 'op8',
-        code: 'OP4002',
+        code: 'OP2002',
         name: 'OP_COOLING_PC2',
         status: 'IDLE',
         phases: [
           { 
             id: 'ph14', 
-            code: 'PH42201', 
-            name: 'PH_CHILL_PC2', 
+            code: 'PH_CHILL_PC2', 
+            name: 'PH_CHILL (SIMIT)', 
             status: 'IDLE', 
             activeStep: 'SIMIT Chilled Loop',
             equipmentModule: 'Simulated Chilled Exchanger HEX-302',
@@ -400,47 +429,77 @@ const initialTopologyCards: TopologyCellCard[] = [
   },
 ];
 
+const defaultPhaseDurations: PhaseDurationsMap = {
+  cell1_physical: {
+    PH11101: 6.0,
+    PH11202: 5.0,
+    PH11303: 4.0,
+    PH12101: 12.0,
+    PH12202: 10.0,
+    PH12303: 4.0,
+    PH22101: 8.0,
+    PH22102: 4.0,
+    PH22201: 5.0,
+    PH22202: 3.0,
+  },
+  cell2_simit: {
+    PH_SUPPLYMILK_PC2: 6.0,
+    PH_SUPPLYSUGAR_PC2: 5.0,
+    PH_AGITATE_PC2: 12.0,
+    PH_HEAT_PC2: 8.0,
+    PH_CHILL_PC2: 5.0,
+    PH11101: 6.0,
+    PH11202: 5.0,
+    PH11303: 4.0,
+    PH12101: 12.0,
+    PH22101: 8.0,
+    PH22201: 5.0,
+  },
+};
+
 const initialTimelineNodes: TimelineNode[] = [
-  // Process Cell 1 Nodes
-  { id: 't1', code: 'UP1000', name: 'UP_MIXING_PC1', type: 'UP', startMinute: 0, durationMinutes: 28, status: 'IDLE', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't2', code: 'OP1001', name: 'OP_INLET', type: 'OP', startMinute: 0, durationMinutes: 12, status: 'IDLE', parentContext: 'UP1000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't3', code: 'PH11101', name: 'PH_SUPPLYMILK', type: 'PH', startMinute: 0, durationMinutes: 6, status: 'IDLE', parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't4', code: 'PH11202', name: 'PH_SUPPLYSUGAR', type: 'PH', startMinute: 4, durationMinutes: 5, status: 'IDLE', parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't5', code: 'PH11303', name: 'PH_SUPPLYADDITIVE', type: 'PH', startMinute: 8, durationMinutes: 4, status: 'IDLE', parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't6', code: 'OP1002', name: 'OP_MIXING', type: 'OP', startMinute: 12, durationMinutes: 16, status: 'IDLE', parentContext: 'UP1000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't7', code: 'PH12101', name: 'PH_AGITATE', type: 'PH', startMinute: 12, durationMinutes: 12, status: 'IDLE', parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't8', code: 'PH12202', name: 'PH_CIRCULATE', type: 'PH', startMinute: 16, durationMinutes: 10, status: 'IDLE', parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't9', code: 'PH12303', name: 'PH_TRANSFER_MIX', type: 'PH', startMinute: 24, durationMinutes: 4, status: 'IDLE', parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't10', code: 'UP2000', name: 'UP_STERILIZE_PC1', type: 'UP', startMinute: 10, durationMinutes: 20, status: 'IDLE', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't11', code: 'OP2001', name: 'OP_HEATING', type: 'OP', startMinute: 10, durationMinutes: 12, status: 'IDLE', parentContext: 'UP2000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't12', code: 'PH22101', name: 'PH_HEAT', type: 'PH', startMinute: 10, durationMinutes: 8, status: 'IDLE', parentContext: 'OP2001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't13', code: 'PH22102', name: 'PH_HOLD_TEMP', type: 'PH', startMinute: 18, durationMinutes: 4, status: 'IDLE', parentContext: 'OP2001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't14', code: 'OP2002', name: 'OP_COOLING', type: 'OP', startMinute: 22, durationMinutes: 8, status: 'IDLE', parentContext: 'UP2000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't15', code: 'PH22201', name: 'PH_CHILL', type: 'PH', startMinute: 22, durationMinutes: 5, status: 'IDLE', parentContext: 'OP2002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
-  { id: 't16', code: 'PH22202', name: 'PH_TRANSFER_OUT', type: 'PH', startMinute: 27, durationMinutes: 3, status: 'IDLE', parentContext: 'OP2002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  // Process Cell 1 (Physical S7-1500) Nodes
+  { id: 't1_pc1', code: 'UP1000', name: 'UP_MIXING_PC1', type: 'UP', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 26.0, status: 'IDLE', stateId: 0, targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't2_pc1', code: 'OP1001', name: 'OP_INLET_PC1', type: 'OP', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 12.0, status: 'IDLE', stateId: 0, parentContext: 'UP1000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't3_pc1', code: 'PH11101', name: 'PH_SUPPLYMILK', type: 'PH', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 6.0, status: 'IDLE', stateId: 0, parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't4_pc1', code: 'PH11202', name: 'PH_SUPPLYSUGAR', type: 'PH', startMinute: 4, durationMinutes: 0, nominalDurationMinutes: 5.0, status: 'IDLE', stateId: 0, parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't5_pc1', code: 'PH11303', name: 'PH_SUPPLYADDITIVE', type: 'PH', startMinute: 8, durationMinutes: 0, nominalDurationMinutes: 4.0, status: 'IDLE', stateId: 0, parentContext: 'OP1001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't6_pc1', code: 'OP1002', name: 'OP_MIXING_PC1', type: 'OP', startMinute: 10, durationMinutes: 0, nominalDurationMinutes: 16.0, status: 'IDLE', stateId: 0, parentContext: 'UP1000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't7_pc1', code: 'PH12101', name: 'PH_AGITATE', type: 'PH', startMinute: 10, durationMinutes: 0, nominalDurationMinutes: 12.0, status: 'IDLE', stateId: 0, parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't8_pc1', code: 'PH12202', name: 'PH_CIRCULATE', type: 'PH', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 10.0, status: 'IDLE', stateId: 0, parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't9_pc1', code: 'PH12303', name: 'PH_TRANSFER_MIX', type: 'PH', startMinute: 22, durationMinutes: 0, nominalDurationMinutes: 4.0, status: 'IDLE', stateId: 0, parentContext: 'OP1002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't10_pc1', code: 'UP2000', name: 'UP_STERILIZE_PC1', type: 'UP', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 18.0, status: 'IDLE', stateId: 0, targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't11_pc1', code: 'OP2001', name: 'OP_HEATING_PC1', type: 'OP', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 12.0, status: 'IDLE', stateId: 0, parentContext: 'UP2000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't12_pc1', code: 'PH22101', name: 'PH_HEAT', type: 'PH', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 8.0, status: 'IDLE', stateId: 0, parentContext: 'OP2001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't13_pc1', code: 'PH22102', name: 'PH_HOLD_TEMP', type: 'PH', startMinute: 20, durationMinutes: 0, nominalDurationMinutes: 4.0, status: 'IDLE', stateId: 0, parentContext: 'OP2001', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't14_pc1', code: 'OP2002', name: 'OP_COOLING_PC1', type: 'OP', startMinute: 24, durationMinutes: 0, nominalDurationMinutes: 6.0, status: 'IDLE', stateId: 0, parentContext: 'UP2000', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't15_pc1', code: 'PH22201', name: 'PH_CHILL', type: 'PH', startMinute: 24, durationMinutes: 0, nominalDurationMinutes: 5.0, status: 'IDLE', stateId: 0, parentContext: 'OP2002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
+  { id: 't16_pc1', code: 'PH22202', name: 'PH_TRANSFER_OUT', type: 'PH', startMinute: 27, durationMinutes: 0, nominalDurationMinutes: 3.0, status: 'IDLE', stateId: 0, parentContext: 'OP2002', targetCell: 'Process Cell 1 (Physical S7-1500)' },
 
   // Process Cell 2 (SIMIT Digital Twin) Nodes
-  { id: 't17', code: 'UP3000', name: 'UP_MIXING_PC2', type: 'UP', startMinute: 0, durationMinutes: 26, status: 'IDLE', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
-  { id: 't18', code: 'OP3001', name: 'OP_INLET_PC2', type: 'OP', startMinute: 0, durationMinutes: 10, status: 'IDLE', parentContext: 'UP3000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
-  { id: 't19', code: 'PH31101', name: 'PH_SUPPLYMILK_PC2', type: 'PH', startMinute: 0, durationMinutes: 6, status: 'IDLE', parentContext: 'OP3001', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
-  { id: 't20', code: 'PH31202', name: 'PH_SUPPLYSUGAR_PC2', type: 'PH', startMinute: 4, durationMinutes: 5, status: 'IDLE', parentContext: 'OP3001', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
-  { id: 't21', code: 'UP4000', name: 'UP_STERILIZE_PC2', type: 'UP', startMinute: 10, durationMinutes: 18, status: 'IDLE', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
-  { id: 't22', code: 'PH42101', name: 'PH_HEAT_PC2', type: 'PH', startMinute: 10, durationMinutes: 9, status: 'IDLE', parentContext: 'UP4000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't1_pc2', code: 'UP1000', name: 'UP_MIXING_PC2', type: 'UP', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 20.0, status: 'IDLE', stateId: 0, targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't2_pc2', code: 'OP1001', name: 'OP_INLET_PC2', type: 'OP', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 9.0, status: 'IDLE', stateId: 0, parentContext: 'UP1000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't3_pc2', code: 'PH_SUPPLYMILK_PC2', name: 'PH_SUPPLYMILK (SIMIT)', type: 'PH', startMinute: 0, durationMinutes: 0, nominalDurationMinutes: 6.0, status: 'IDLE', stateId: 0, parentContext: 'OP1001', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't4_pc2', code: 'PH_SUPPLYSUGAR_PC2', name: 'PH_SUPPLYSUGAR (SIMIT)', type: 'PH', startMinute: 4, durationMinutes: 0, nominalDurationMinutes: 5.0, status: 'IDLE', stateId: 0, parentContext: 'OP1001', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't5_pc2', code: 'OP1002', name: 'OP_MIXING_PC2', type: 'OP', startMinute: 8, durationMinutes: 0, nominalDurationMinutes: 12.0, status: 'IDLE', stateId: 0, parentContext: 'UP1000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't6_pc2', code: 'PH_AGITATE_PC2', name: 'PH_AGITATE (SIMIT)', type: 'PH', startMinute: 8, durationMinutes: 0, nominalDurationMinutes: 12.0, status: 'IDLE', stateId: 0, parentContext: 'OP1002', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't7_pc2', code: 'UP2000', name: 'UP_STERILIZE_PC2', type: 'UP', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 13.0, status: 'IDLE', stateId: 0, targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't8_pc2', code: 'OP2001', name: 'OP_HEATING_PC2', type: 'OP', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 8.0, status: 'IDLE', stateId: 0, parentContext: 'UP2000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't9_pc2', code: 'PH_HEAT_PC2', name: 'PH_HEAT (SIMIT)', type: 'PH', startMinute: 12, durationMinutes: 0, nominalDurationMinutes: 8.0, status: 'IDLE', stateId: 0, parentContext: 'OP2001', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't10_pc2', code: 'OP2002', name: 'OP_COOLING_PC2', type: 'OP', startMinute: 20, durationMinutes: 0, nominalDurationMinutes: 5.0, status: 'IDLE', stateId: 0, parentContext: 'UP2000', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
+  { id: 't11_pc2', code: 'PH_CHILL_PC2', name: 'PH_CHILL (SIMIT)', type: 'PH', startMinute: 20, durationMinutes: 0, nominalDurationMinutes: 5.0, status: 'IDLE', stateId: 0, parentContext: 'OP2002', targetCell: 'Process Cell 2 (SIMIT Digital Twin)' },
 ];
 
-const generateTrendData = (baseSp: number, variance: number, clampMin = 0, points = 15): { time: string; sp: number; pv: number }[] => {
+const generateTrendData = (baseSp: number, _variance = 0, _clampMin = 0, points = 15): { time: string; sp: number; pv: number }[] => {
   const result = [];
   const now = new Date();
   for (let i = points; i >= 0; i--) {
     const t = new Date(now.getTime() - i * 60000);
     const timeStr = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const noise = (Math.random() - 0.5) * variance;
-    const rawPv = baseSp + noise;
-    const pv = Math.max(clampMin, parseFloat(rawPv.toFixed(1)));
     result.push({
       time: timeStr,
       sp: baseSp,
-      pv,
+      pv: 0.0,
     });
   }
   return result;
@@ -457,8 +516,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 120,
     currentSp: 100.0,
-    currentPv: 99.6,
-    dataPoints: generateTrendData(100.0, 2.5, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(100.0, 0, 0),
   },
   {
     id: 'tr2',
@@ -470,8 +529,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 300,
     currentSp: 200.0,
-    currentPv: 199.8,
-    dataPoints: generateTrendData(200.0, 1.8, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(200.0, 0, 0),
   },
   {
     id: 'tr3',
@@ -483,8 +542,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 20,
     max: 150,
     currentSp: 138.0,
-    currentPv: 138.1,
-    dataPoints: generateTrendData(138.0, 0.8, 20),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(138.0, 0, 20),
   },
   {
     id: 'tr4',
@@ -496,8 +555,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 1500,
     currentSp: 1200.0,
-    currentPv: 1198.0,
-    dataPoints: generateTrendData(1200.0, 15, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(1200.0, 0, 0),
   },
   {
     id: 'tr5',
@@ -509,8 +568,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 20,
     currentSp: 12.5,
-    currentPv: 12.4,
-    dataPoints: generateTrendData(12.5, 0.3, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(12.5, 0, 0),
   },
   {
     id: 'tr6',
@@ -522,8 +581,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 30,
     currentSp: 4.0,
-    currentPv: 4.1,
-    dataPoints: generateTrendData(4.0, 0.5, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(4.0, 0, 0),
   },
   {
     id: 'tr7',
@@ -535,8 +594,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 30,
     currentSp: 22.0,
-    currentPv: 18.5,
-    dataPoints: generateTrendData(20.0, 1.2, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(20.0, 0, 0),
   },
   {
     id: 'tr8',
@@ -548,8 +607,8 @@ const initialTrendCards: ProcessTrendCard[] = [
     min: 0,
     max: 6,
     currentSp: 3.5,
-    currentPv: 3.49,
-    dataPoints: generateTrendData(3.5, 0.1, 0),
+    currentPv: 0.0,
+    dataPoints: generateTrendData(3.5, 0, 0),
   },
 ];
 
@@ -558,14 +617,112 @@ const OperationsContext = createContext<OperationsContextType | undefined>(undef
 export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const masterData = useMasterData();
 
-  // Centralized Kepware Gateway URL
-  const [scadaGatewayUrl] = useState<string>('opc.tcp://127.0.0.1:49320');
-  const [isScadaConnected] = useState<boolean>(true);
-  const [targetProcessLine, setTargetProcessLine] = useState<string>('Process Cell 1 (Physical S7-1500)');
+  // Centralized Kepware Gateway URL bound to shared ConfigContext
+  const { isGatewayOnline, endpoint } = useGatewayStatus();
+  const scadaGatewayUrl = endpoint || 'opc.tcp://127.0.0.1:49320';
+  const isScadaConnected = isGatewayOnline;
+  const [executionMode, setExecutionModeState] = useState<ExecutionMode>('mode3_dual');
+  const [targetProcessLine, setTargetProcessLineState] = useState<string>('Dual-Run Benchmark (Physical + SIMIT Twin Synchronized)');
 
-  // Handshake Interlock State
+  const setExecutionMode = (mode: ExecutionMode) => {
+    setExecutionModeState(mode);
+    if (mode === 'mode1_physical') {
+      setTargetProcessLineState('Process Cell 1 (Physical S7-1500 Hardware Only)');
+    } else if (mode === 'mode2_simit') {
+      setTargetProcessLineState('Process Cell 2 (SIMIT Digital Twin Only)');
+    } else {
+      setTargetProcessLineState('Dual-Run Benchmark (Physical + SIMIT Twin Synchronized)');
+    }
+    api.setDualRunMode(mode).catch(() => {});
+  };
+
+  const setTargetProcessLine = (line: string) => {
+    setTargetProcessLineState(line);
+    if (line.includes('Dual') || line.includes('Benchmark') || line.includes('Synchronized')) {
+      setExecutionModeState('mode3_dual');
+      api.setDualRunMode('mode3_dual').catch(() => {});
+    } else if (line.includes('Cell 2') || line.includes('SIMIT') || line.includes('Twin')) {
+      setExecutionModeState('mode2_simit');
+      api.setDualRunMode('mode2_simit').catch(() => {});
+    } else {
+      setExecutionModeState('mode1_physical');
+      api.setDualRunMode('mode1_physical').catch(() => {});
+    }
+  };
+
+  // Handshake Interlock State & Dual-Run Cell Handshake Flags
   const [handshakeStatus, setHandshakeStatus] = useState<HandshakeStatus>('IDLE');
   const [handshakeLoadedOk, setHandshakeLoadedOk] = useState<boolean>(false);
+  const [cell1Ack, setCell1Ack] = useState<boolean>(false);
+  const [cell2Ack, setCell2Ack] = useState<boolean>(false);
+  const [cell1Complete, setCell1Complete] = useState<boolean>(false);
+  const [cell2Complete, setCell2Complete] = useState<boolean>(false);
+  const [cell1Duration, setCell1Duration] = useState<string>('--');
+  const [cell2Duration, setCell2Duration] = useState<string>('--');
+  const [deviationMatrix, setDeviationMatrix] = useState<DigitalTwinDeviationRow[]>([]);
+  const [benchmarkSummary, setBenchmarkSummary] = useState<DualRunBenchmarkSummary | null>(null);
+
+  const refreshDeviationMatrix = async () => {
+    try {
+      const res = await api.getDeviationMatrix();
+      if (res && res.matrix) {
+        const rows: DigitalTwinDeviationRow[] = res.matrix.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          phase: m.phase,
+          unit: m.unit,
+          sp: m.sp,
+          pvHardware: m.pv_hardware,
+          pvSimit: m.pv_simit,
+          delta: m.delta,
+          tolerance: m.tolerance,
+          status: m.status as DeviationStatus,
+          c1Mapped: m.c1_mapped,
+          c2Mapped: m.c2_mapped,
+        }));
+        setDeviationMatrix(rows);
+
+        if (res.benchmark_summary) {
+          const b = res.benchmark_summary;
+          setBenchmarkSummary({
+            mappedParameters: b.mapped_parameters ?? 0,
+            matchedParameters: b.matched_parameters ?? 0,
+            totalParameters: b.total_parameters ?? 6,
+            fidelityIndex: b.fidelity_index,
+            tHardwareSec: b.t_hardware_sec,
+            tHardwareFormatted: b.t_hardware_formatted || '--',
+            tSimitSec: b.t_simit_sec,
+            tSimitFormatted: b.t_simit_formatted || '--',
+            deltaTSec: b.delta_t_sec,
+            deltaTFormatted: b.delta_t_formatted || '--',
+            cell1Complete: Boolean(b.cell1_complete),
+            cell2Complete: Boolean(b.cell2_complete),
+          });
+          setCell1Complete(Boolean(b.cell1_complete));
+          setCell2Complete(Boolean(b.cell2_complete));
+          if (b.t_hardware_formatted) setCell1Duration(b.t_hardware_formatted);
+          if (b.t_simit_formatted) setCell2Duration(b.t_simit_formatted);
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
+  };
+
+  const completeCellSimulation = async (cell: 'cell1' | 'cell2') => {
+    try {
+      await api.completeCell(cell);
+      await refreshDeviationMatrix();
+    } catch {
+      //
+    }
+  };
+
+  useEffect(() => {
+    refreshDeviationMatrix();
+    const interval = setInterval(refreshDeviationMatrix, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Clean-In-Place (CIP) Hygiene Interlock State (Siemens PM-CONTROL)
   // Initialized to DIRTY_EXPIRED (sterility expired) so interlock is active and testable immediately
@@ -579,6 +736,13 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCipStatus('IN_PROGRESS');
     setCipProgressRemaining(5);
     setLastCommandFeedback('[CIP ENGAGED] Initiating automated Clean-In-Place 5-stage sanitization cycle (Pre-rinse, Caustic wash, Acid wash, Final rinse, Hot steam)...');
+
+    // Trigger bidirectional CIP command on PLC/Gateway: CIP_START_CMD = True, CIP_CLEAN_STATUS = False
+    try {
+      await api.triggerCipCycle(5);
+    } catch (err) {
+      console.debug('[OperationsContext] Trigger CIP cycle notice:', err);
+    }
 
     return new Promise<void>((resolve) => {
       let secondsLeft = 5;
@@ -598,10 +762,15 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  const resetCipToExpired = () => {
+  const resetCipToExpired = async () => {
     setCipStatus('DIRTY_EXPIRED');
     setLastCipTimestamp('2026-10-01 18:30:00');
     setLastCommandFeedback('[CIP INTERLOCK ENGAGED] Unit Mixing Clean-In-Place expired (> 8.0 hours). Automated safety gate locked: SCADA download & batch start disabled.');
+    try {
+      await api.resetCipInterlock();
+    } catch (err) {
+      console.debug('[OperationsContext] Reset CIP notice:', err);
+    }
     setTimeout(() => setLastCommandFeedback(null), 6000);
   };
 
@@ -614,6 +783,63 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Active Supervisory Batch State & Commands
   const [currentBatchState, setCurrentBatchState] = useState<Isa88BatchState>('IDLE');
   const [lastCommandFeedback, setLastCommandFeedback] = useState<string | null>(null);
+
+  // Configurable Phase Durations (ISA-88 target running times)
+  const [phaseDurations, setPhaseDurations] = useState<PhaseDurationsMap>(defaultPhaseDurations);
+
+  const reloadPhaseDurations = async () => {
+    try {
+      const res = await api.getPhaseDurations();
+      if (res && res.success && res.durations) {
+        setPhaseDurations({
+          cell1_physical: { ...defaultPhaseDurations.cell1_physical, ...res.durations.cell1_physical },
+          cell2_simit: { ...defaultPhaseDurations.cell2_simit, ...res.durations.cell2_simit },
+        });
+      }
+    } catch (err) {
+      console.debug('[OperationsContext] Failed to load phase durations:', err);
+    }
+  };
+
+  useEffect(() => {
+    reloadPhaseDurations();
+  }, []);
+
+  const saveAllPhaseDurations = async (newDurations: PhaseDurationsMap): Promise<boolean> => {
+    try {
+      const res = await api.updatePhaseDurations(newDurations);
+      if (res && res.success) {
+        setPhaseDurations(newDurations);
+        setTimelineNodes(prev => prev.map(node => {
+          const isCell2 = node.targetCell?.includes('Cell 2');
+          const baseCode = node.code.replace('_PC2', '');
+          const nominalDuration = isCell2
+            ? (newDurations.cell2_simit[node.code] ?? newDurations.cell2_simit[baseCode] ?? (node.nominalDurationMinutes || 5.0))
+            : (newDurations.cell1_physical[node.code] ?? newDurations.cell1_physical[baseCode] ?? (node.nominalDurationMinutes || 5.0));
+          return {
+            ...node,
+            nominalDurationMinutes: nominalDuration,
+          };
+        }));
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[OperationsContext] Failed to save phase durations:', err);
+      return false;
+    }
+  };
+
+  const updatePhaseDuration = async (cell: 'cell1_physical' | 'cell2_simit', phaseCode: string, durationMinutes: number) => {
+    const updated = {
+      ...phaseDurations,
+      [cell]: {
+        ...phaseDurations[cell],
+        [phaseCode]: durationMinutes,
+      },
+    };
+    await saveAllPhaseDurations(updated);
+  };
 
   const [scadaVerifications, setScadaVerifications] = useState<ScadaSetpointVerification[]>(initialVerifications);
   const [topologyCards, setTopologyCards] = useState<TopologyCellCard[]>(initialTopologyCards);
@@ -644,6 +870,8 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           completionTime: wo.endTime !== '---' ? wo.endTime : undefined,
           assignedCell: 'Process Cell 1 (Physical S7-1500)',
           customerName: wo.customerName,
+          customerCode: wo.customerCode,
+          orderPriority: wo.orderPriority,
           setpoints: {
             milkSp,
             sugarSp,
@@ -702,21 +930,32 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         },
         {
           id: '3',
-          phaseId: 'PH_HEATING',
-          tagName: 'PH22101_SETPOINT_TEMP_HOT',
-          scriptedSetpoint: active.setpoints.tempHotSp,
-          scadaActualReadback: active.status === 'RUNNING' ? 138.1 : 24.5,
-          unit: '°C',
+          phaseId: 'PH_SUPPLYADDITIVE',
+          tagName: 'PH11303_SETPOINT_ADDITIVE',
+          scriptedSetpoint: active.setpoints.additiveSp,
+          scadaActualReadback: active.status === 'RUNNING' ? active.setpoints.additiveSp : 0.0,
+          unit: 'L',
           tolerance: 1.0,
           status: active.status === 'RUNNING' ? 'Matched' : 'In Progress',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         },
         {
           id: '4',
+          phaseId: 'PH_HEATING',
+          tagName: 'PH22101_SETPOINT_TEMP_HOT',
+          scriptedSetpoint: active.setpoints.tempHotSp,
+          scadaActualReadback: active.status === 'RUNNING' ? active.setpoints.tempHotSp : 0.0,
+          unit: '°C',
+          tolerance: 1.0,
+          status: active.status === 'RUNNING' ? 'Matched' : 'In Progress',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        },
+        {
+          id: '5',
           phaseId: 'PH_COOLING',
           tagName: 'PH22202_SETPOINT_TEMP_COLD',
           scriptedSetpoint: active.setpoints.tempColdSp,
-          scadaActualReadback: active.status === 'RUNNING' ? 4.1 : 25.0,
+          scadaActualReadback: active.status === 'RUNNING' ? active.setpoints.tempColdSp : 0.0,
           unit: '°C',
           tolerance: 0.5,
           status: active.status === 'RUNNING' ? 'Matched' : 'In Progress',
@@ -724,7 +963,178 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         },
       ]);
     }
-  }, [selectedOrderId, runningOrders.length]);
+  }, [selectedOrderId, runningOrders.length, newOrders]);
+
+  // Helper to dynamically compute phase node state & stretching duration
+  const computeDynamicNode = (
+    node: TimelineNode,
+    elapsed: number,
+    batchState: Isa88BatchState,
+    mappedOpcState?: number
+  ): TimelineNode => {
+    const baseCode = node.code.replace('_PC2', '');
+    const isCell2 = node.targetCell?.includes('Cell 2');
+    const nominalDuration = isCell2
+      ? (phaseDurations.cell2_simit[node.code] ?? phaseDurations.cell2_simit[baseCode] ?? (node.nominalDurationMinutes || 5.0))
+      : (phaseDurations.cell1_physical[node.code] ?? phaseDurations.cell1_physical[baseCode] ?? (node.nominalDurationMinutes || 5.0));
+
+    // If live OPC UA telemetry explicitly provides an ISA-88 state for this phase, honor it!
+    if (mappedOpcState !== undefined && mappedOpcState >= 0 && mappedOpcState <= 11) {
+      const opcMeta = getIsa88State(mappedOpcState);
+      const isComplete = mappedOpcState === 11;
+      const isRunning = mappedOpcState === 1;
+      const duration = isComplete ? nominalDuration : isRunning ? Math.max(0.1, elapsed - node.startMinute) : node.durationMinutes;
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: opcMeta.name,
+        stateId: opcMeta.id,
+        durationMinutes: duration,
+        isFrozen: isComplete,
+      };
+    }
+
+    if (batchState === 'IDLE' || batchState === 'NEW' || batchState === 'READY') {
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: 'IDLE',
+        stateId: 0,
+        durationMinutes: 0,
+        isFrozen: false,
+      };
+    }
+
+    if (batchState === 'HELD' || batchState === 'HOLDING') {
+      const isNodeRunning = node.status === 'RUNNING' || node.stateId === 1;
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: isNodeRunning ? (batchState === 'HELD' ? 'HELD' : 'HOLDING') : node.status,
+        stateId: isNodeRunning ? (batchState === 'HELD' ? 3 : 2) : node.stateId,
+      };
+    }
+
+    if (batchState === 'PAUSED' || batchState === 'PAUSING') {
+      const isNodeRunning = node.status === 'RUNNING' || node.stateId === 1;
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: isNodeRunning ? (batchState === 'PAUSED' ? 'PAUSED' : 'PAUSING') : node.status,
+        stateId: isNodeRunning ? (batchState === 'PAUSED' ? 6 : 5) : node.stateId,
+      };
+    }
+
+    if (batchState === 'STOPPED' || batchState === 'STOPPING') {
+      const isNodeRunning = node.status === 'RUNNING' || node.stateId === 1;
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: isNodeRunning ? 'STOPPED' : node.status,
+        stateId: isNodeRunning ? 8 : node.stateId,
+      };
+    }
+
+    if (batchState === 'ABORTED' || batchState === 'ABORTING') {
+      const isNodeRunning = node.status === 'RUNNING' || node.stateId === 1;
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: isNodeRunning ? 'ABORTED' : node.status,
+        stateId: isNodeRunning ? 10 : node.stateId,
+      };
+    }
+
+    if (batchState === 'COMPLETE' || batchState === 'COMPLETED') {
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: 'COMPLETE',
+        stateId: 11,
+        durationMinutes: nominalDuration,
+        isFrozen: true,
+      };
+    }
+
+    // Dynamic nominal windows using configured durations
+    const cell1Durations = phaseDurations.cell1_physical;
+    const cell2Durations = phaseDurations.cell2_simit;
+
+    const nominalWindows: Record<string, { start: number; end: number }> = {
+      // Cell 1 Physical (Hardware S7-1500)
+      PH11101: { start: 0, end: cell1Durations['PH11101'] ?? 6.0 },
+      PH11202: { start: 4.0, end: 4.0 + (cell1Durations['PH11202'] ?? 5.0) },
+      PH11303: { start: 8.0, end: 8.0 + (cell1Durations['PH11303'] ?? 4.0) },
+      OP1001: { start: 0, end: Math.max(12.0, 8.0 + (cell1Durations['PH11303'] ?? 4.0)) },
+      PH12101: { start: 10.0, end: 10.0 + (cell1Durations['PH12101'] ?? 12.0) },
+      PH12202: { start: 12.0, end: 12.0 + (cell1Durations['PH12202'] ?? 10.0) },
+      PH12303: { start: 22.0, end: 22.0 + (cell1Durations['PH12303'] ?? 4.0) },
+      OP1002: { start: 10.0, end: Math.max(26.0, 22.0 + (cell1Durations['PH12303'] ?? 4.0)) },
+      UP1000: { start: 0, end: 26.0 },
+      PH22101: { start: 12.0, end: 12.0 + (cell1Durations['PH22101'] ?? 8.0) },
+      PH22102: { start: 20.0, end: 20.0 + (cell1Durations['PH22102'] ?? 4.0) },
+      OP2001: { start: 12.0, end: Math.max(24.0, 20.0 + (cell1Durations['PH22102'] ?? 4.0)) },
+      PH22201: { start: 24.0, end: 24.0 + (cell1Durations['PH22201'] ?? 5.0) },
+      PH22202: { start: 27.0, end: 27.0 + (cell1Durations['PH22202'] ?? 3.0) },
+      OP2002: { start: 24.0, end: Math.max(30.0, 27.0 + (cell1Durations['PH22202'] ?? 3.0)) },
+      UP2000: { start: 12.0, end: 30.0 },
+
+      // Cell 2 SIMIT Digital Twin
+      PH_SUPPLYMILK_PC2: { start: 0, end: cell2Durations['PH_SUPPLYMILK_PC2'] ?? 6.0 },
+      PH_SUPPLYSUGAR_PC2: { start: 4.0, end: 4.0 + (cell2Durations['PH_SUPPLYSUGAR_PC2'] ?? 5.0) },
+      PH_AGITATE_PC2: { start: 8.0, end: 8.0 + (cell2Durations['PH_AGITATE_PC2'] ?? 12.0) },
+      PH_HEAT_PC2: { start: 12.0, end: 12.0 + (cell2Durations['PH_HEAT_PC2'] ?? 8.0) },
+      PH_CHILL_PC2: { start: 20.0, end: 20.0 + (cell2Durations['PH_CHILL_PC2'] ?? 5.0) },
+    };
+
+    const cell2Overrides: Record<string, { start: number; end: number }> = {
+      UP1000: { start: 0, end: Math.max(20.0, 8.0 + (cell2Durations['PH_AGITATE_PC2'] ?? 12.0)) },
+      OP1001: { start: 0, end: Math.max(9.0, 4.0 + (cell2Durations['PH_SUPPLYSUGAR_PC2'] ?? 5.0)) },
+      OP1002: { start: 8.0, end: Math.max(20.0, 8.0 + (cell2Durations['PH_AGITATE_PC2'] ?? 12.0)) },
+      UP2000: { start: 12.0, end: Math.max(25.0, 20.0 + (cell2Durations['PH_CHILL_PC2'] ?? 5.0)) },
+      OP2001: { start: 12.0, end: Math.max(20.0, 12.0 + (cell2Durations['PH_HEAT_PC2'] ?? 8.0)) },
+      OP2002: { start: 20.0, end: Math.max(25.0, 20.0 + (cell2Durations['PH_CHILL_PC2'] ?? 5.0)) },
+    };
+
+    const w = (isCell2 && cell2Overrides[node.code])
+      ? cell2Overrides[node.code]
+      : (nominalWindows[node.code] || nominalWindows[baseCode] || { start: node.startMinute, end: node.startMinute + nominalDuration });
+
+    if (elapsed < w.start) {
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: 'IDLE',
+        stateId: 0,
+        durationMinutes: 0,
+        isFrozen: false,
+      };
+    } else if (elapsed >= w.start && elapsed < w.end) {
+      // Live dynamic stretching
+      const dynamicDuration = Math.max(0.1, Number((elapsed - w.start).toFixed(2)));
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: 'RUNNING',
+        stateId: 1,
+        startMinute: w.start,
+        durationMinutes: dynamicDuration,
+        isFrozen: false,
+      };
+    } else {
+      // Completed and frozen
+      const frozenDuration = Number((w.end - w.start).toFixed(2));
+      return {
+        ...node,
+        nominalDurationMinutes: nominalDuration,
+        status: 'COMPLETE',
+        stateId: 11,
+        startMinute: w.start,
+        durationMinutes: frozenDuration,
+        isFrozen: true,
+      };
+    }
+  };
 
   // Dynamic Cell 2 & Cell 1 Topology Switching
   useEffect(() => {
@@ -766,30 +1176,20 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }));
   }, [targetProcessLine, currentBatchState]);
 
-  // Dynamic Timeline Nodes update based on running state & target process line
+  // Dynamic Phase Timeline Engine: drives dynamic stretching and state progression
   useEffect(() => {
-    const isCell2 = targetProcessLine.includes('Cell 2');
-    const targetFilter = isCell2 ? 'Process Cell 2 (SIMIT Digital Twin)' : 'Process Cell 1 (Physical S7-1500)';
-
-    setTimelineNodes(prev => prev.map(node => {
-      if (node.targetCell === targetFilter) {
-        if (currentBatchState === 'RUNNING') {
-          // First few nodes completed, middle running, remainder idle
-          if (node.code.includes('INLET') || node.code.includes('SUPPLYMILK')) {
-            return { ...node, status: 'COMPLETED' };
-          }
-          if (node.code.includes('MIXING') || node.code.includes('HEAT') || node.code.includes('AGITATE')) {
-            return { ...node, status: 'RUNNING' };
-          }
-        } else if (currentBatchState === 'HELD') {
-          return { ...node, status: node.status === 'RUNNING' ? 'HELD' : node.status };
-        }
+    const activeOrder = runningOrders[0];
+    let elapsedMinutes = 0;
+    if (activeOrder && activeOrder.elapsedTime) {
+      const parts = activeOrder.elapsedTime.split(':').map(Number);
+      if (parts.length === 3) {
+        elapsedMinutes = parts[0] * 60 + parts[1] + parts[2] / 60;
       }
-      return node;
-    }));
-  }, [targetProcessLine, currentBatchState]);
+    }
+    setTimelineNodes(prev => prev.map(node => computeDynamicNode(node, elapsedMinutes, currentBatchState)));
+  }, [currentBatchState]);
 
-  // Auto-increment elapsed time for the running order
+  // Auto-increment elapsed time for the running order & synchronize timeline stretching
   useEffect(() => {
     const timer = setInterval(() => {
       setRunningOrders((prev) =>
@@ -808,7 +1208,15 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               h += 1;
             }
             const pad = (n: number) => n.toString().padStart(2, '0');
-            return { ...order, elapsedTime: `${pad(h)}:${pad(m)}:${pad(s)}` };
+            const newElapsedTime = `${pad(h)}:${pad(m)}:${pad(s)}`;
+            const currentElapsedMinutes = h * 60 + m + s / 60;
+
+            // Dynamically stretch timeline nodes for running process line
+            setTimelineNodes(prevNodes =>
+              prevNodes.map(node => computeDynamicNode(node, currentElapsedMinutes, 'RUNNING'))
+            );
+
+            return { ...order, elapsedTime: newElapsedTime };
           }
           return order;
         })
@@ -827,20 +1235,23 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           
           setScadaVerifications(prev => prev.map(v => {
             if (v.phaseId === 'PH_HEATING' || v.tagName.includes('TEMP_HOT')) {
-              const pv = Number((telemetry.temperature_act ?? 138.1).toFixed(1));
+              const pv = Number((telemetry.temperature_act ?? 0.0).toFixed(1));
               const diff = Math.abs(pv - v.scriptedSetpoint);
               const status = diff <= v.tolerance ? 'Matched' : currentBatchState === 'RUNNING' ? 'In Progress' : 'Deviating';
               return { ...v, scadaActualReadback: pv, status };
             }
             if (v.phaseId === 'PH_SUPPLYSUGAR' || v.tagName.includes('SETPOINT_SUGAR')) {
               // Ensure clamped >= 0
-              const pv = Math.max(0.0, Number((telemetry.weight_act ?? 200.0).toFixed(1)));
+              const pv = Math.max(0.0, Number((telemetry.weight_act ?? 0.0).toFixed(1)));
               const diff = Math.abs(pv - v.scriptedSetpoint);
               const status = diff <= v.tolerance ? 'Matched' : currentBatchState === 'RUNNING' ? 'In Progress' : 'Deviating';
               return { ...v, scadaActualReadback: pv, status };
             }
             if (v.phaseId === 'PH_SUPPLYMILK') {
-              const pv = currentBatchState === 'RUNNING' ? v.scriptedSetpoint : 0.0;
+              const milkTag = Array.isArray(telemetry.essential_tags)
+                ? telemetry.essential_tags.find((t: any) => t.tag_name === 'PH11101_FLOWRATE_ACT' || t.tag_name === 'Milk_Flow_PV')
+                : null;
+              const pv = milkTag && typeof milkTag.value === 'number' ? Number(milkTag.value.toFixed(1)) : 0.0;
               const diff = Math.abs(pv - v.scriptedSetpoint);
               const status = diff <= v.tolerance ? 'Matched' : 'In Progress';
               return { ...v, scadaActualReadback: pv, status };
@@ -848,9 +1259,35 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return v;
           }));
 
+          // Auto-disengage CIP Safety Interlock if PLC reports CIP_CLEAN_STATUS = 1 or true
+          const tagList = Array.isArray(telemetry.essential_tags)
+            ? telemetry.essential_tags
+            : (telemetry.essential_tags && typeof telemetry.essential_tags === 'object')
+              ? Object.values(telemetry.essential_tags)
+              : [];
+          const cipTag = tagList.find((t: any) => 
+            t.tag_name === 'CIP_CLEAN_STATUS' || 
+            t.tag_key === 'CIP_CLEAN_STATUS' ||
+            t.node_id?.includes('CIP_CLEAN_STATUS') ||
+            t.node_id?.includes('CIP_Sanitized_OK') ||
+            t.node_id === 'ns=2;s=Simulation Examples.Functions.User1'
+          );
+          if (cipTag && (cipTag.value === true || cipTag.value === 1 || cipTag.value === '1' || cipTag.value === 'true')) {
+            setCipStatus((prev) => {
+              if (prev !== 'CLEAN' && prev !== 'IN_PROGRESS') {
+                const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+                setLastCipTimestamp(nowStr);
+                setLastCommandFeedback('[CIP TỰ ĐỘNG XÁC NHẬN] PLC CIP_CLEAN_STATUS = 1. Khóa liên động CIP đã tự động mở.');
+                setTimeout(() => setLastCommandFeedback(null), 6000);
+                return 'CLEAN';
+              }
+              return prev;
+            });
+          }
+
           setTrendCards(prev => prev.map(t => {
             if (t.title.includes('Sterilization') || t.title.includes('Hot Temp')) {
-              const pv = Math.min(150, Math.max(20, Number((telemetry.temperature_act ?? 138.1).toFixed(1))));
+              const pv = Number((telemetry.temperature_act ?? 0.0).toFixed(1));
               return { 
                 ...t, 
                 currentSp: 138.0,
@@ -860,7 +1297,7 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             if (t.title.includes('Sugar Weight')) {
               // Clamp min to 0
-              const pv = Math.max(0.0, Number((telemetry.weight_act ?? 199.8).toFixed(1)));
+              const pv = Math.max(0.0, Number((telemetry.weight_act ?? 0.0).toFixed(1)));
               return { 
                 ...t, 
                 currentPv: pv, 
@@ -903,32 +1340,60 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         setHandshakeStatus('DOWNLOADING');
-        setLastCommandFeedback(`[DOWNLINK] Transmitting [${targetOrder.id}] Control Recipe setpoints to Kepware buffer...`);
+        const modeDesc = executionMode === 'mode1_physical'
+          ? 'Process Cell 1 (S7-1500 Hardware Only)'
+          : executionMode === 'mode2_simit'
+          ? 'Process Cell 2 (SIMIT Digital Twin Only)'
+          : 'Dual-Run Benchmark (Physical + SIMIT Twin Synchronized)';
 
-        // Transmit setpoints to backend if online
+        setLastCommandFeedback(`[DOWNLINK] Transmitting [${targetOrder.id}] Control Recipe setpoints to Kepware buffer for ${modeDesc}...`);
+
+        let dispatchResult: any = null;
         try {
-          await fetch('/api/gateway/write-setpoints', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              milk_sp: targetOrder.setpoints?.milkSp || 700.0,
-              sugar_sp: targetOrder.setpoints?.sugarSp || 200.0,
-              temperature_sp: targetOrder.setpoints?.tempHotSp || 138.0,
-              cooling_sp: targetOrder.setpoints?.tempColdSp || 4.0,
-            }),
+          dispatchResult = await api.dispatchDualRunRecipe({
+            order_code: targetOrder.id,
+            execution_mode: executionMode,
+            recipe_name: targetOrder.recipeName,
+            target_volume: targetOrder.volume,
           });
         } catch {
-          // Simulation fallback
+          try {
+            dispatchResult = await api.dispatchBatch({
+              order_code: targetOrder.id,
+              execution_mode: executionMode,
+            });
+          } catch {
+            // Fallback safe catch
+          }
         }
 
-        // Simulate PLC Handshake Confirmation
-        setTimeout(() => {
-          setHandshakeStatus('VERIFIED');
-          setHandshakeLoadedOk(true);
-          setLastCommandFeedback(`[HANDSHAKE OK] Recipe Setpoints Verified by Controller: Handshake_Loaded_OK = True. [START BATCH] is now illuminated.`);
-          setScadaVerifications(prev => prev.map(v => ({ ...v, timestamp: timeStr, status: 'Matched' })));
-        }, 800);
+        const c1Ack = dispatchResult?.cell1_ack ?? true;
+        const c2Ack = dispatchResult?.cell2_ack ?? true;
+        setCell1Ack(c1Ack);
+        setCell2Ack(c2Ack);
 
+        let isOk = false;
+        if (executionMode === 'mode1_physical') isOk = c1Ack;
+        else if (executionMode === 'mode2_simit') isOk = c2Ack;
+        else isOk = c1Ack && c2Ack;
+
+        setHandshakeLoadedOk(isOk);
+        setHandshakeStatus(isOk ? 'VERIFIED' : 'DOWNLOADING');
+
+        if (isOk) {
+          if (executionMode === 'mode3_dual') {
+            setLastCommandFeedback(`[DUAL-RUN HANDSHAKE OK] Cả Process Cell 1 (S7-1500) & Cell 2 (SIMIT Twin) đã nhận setpoints & xác nhận Ack_Recipe_Loaded = True. [START BATCH] đã sẵn sàng.`);
+          } else if (executionMode === 'mode2_simit') {
+            setLastCommandFeedback(`[SIMIT TWIN HANDSHAKE OK] SIMIT Digital Twin đã nhận setpoints & xác nhận nạp công thức. [START BATCH] đã sẵn sàng.`);
+          } else {
+            setLastCommandFeedback(`[HARDWARE HANDSHAKE OK] Process Cell 1 Hardware đã nhận setpoints & xác nhận nạp công thức. [START BATCH] đã sẵn sàng.`);
+          }
+          setScadaVerifications(prev => prev.map(v => ({ ...v, timestamp: timeStr, status: 'Matched' })));
+        } else {
+          setLastCommandFeedback(`[HANDSHAKE CHỜ] Đang chờ xác nhận từ controller active...`);
+        }
+
+        await refreshDeviationMatrix();
         return;
       }
 
@@ -957,28 +1422,42 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setNewOrders(prev => prev.filter(o => o.id !== targetOrder.id));
         setRunningOrders([activated, ...runningOrders]);
         setCurrentBatchState('RUNNING');
+        setCell1Complete(false);
+        setCell2Complete(false);
+
+        // Dispatches 500ms CMD_Start pulse via backend batch_engine
+        try {
+          await api.startDualRunBatch({
+            order_code: targetOrder.id,
+            execution_mode: executionMode,
+          });
+        } catch {
+          // Fallback
+        }
 
         // Asynchronously update status in SQL Server and log audit trail
-        api.updateOrderStatus(targetOrder.id, 'Running', 'Operator')
-          .then(() => masterData?.refetchData?.())
+        api.updateOrderStatus(targetOrder.id, 'RUNNING', 'Operator')
+          .then(() => {
+            masterData?.refetchData?.();
+            window.dispatchEvent(new CustomEvent('mes:orders-updated'));
+          })
           .catch(() => {});
         api.logUserAction({
           username: 'Operator',
           role: 'Operator',
           action: 'BATCH_START',
-          detail: `Batch [${targetOrder.id}] started execution for Recipe: ${targetOrder.recipeName}`,
+          detail: `Batch [${targetOrder.id}] started execution for Recipe: ${targetOrder.recipeName} (Mode: ${executionMode})`,
         }).catch(() => {});
 
-        // Forward to Kepware
-        try {
-          await fetch('/api/gateway/batch-command', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'START' }),
-          });
-        } catch {}
+        // Forward to Kepware via universal phase transition bus
+        api.transitionPhase({
+          order_code: targetOrder.id,
+          phase_id: 'PH_START',
+          state: 'START',
+        }).catch(() => {});
 
-        setLastCommandFeedback(`[START BATCH] Order [${targetOrder.id}] active. Runtime timer started.`);
+        setLastCommandFeedback(`[START BATCH] Order [${targetOrder.id}] active. Xung CMD_Start (500ms) đã gửi. Runtime timer started.`);
+        await refreshDeviationMatrix();
         return;
       }
 
@@ -987,8 +1466,11 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setRunningOrders(prev => prev.map(o => ({ ...o, status: 'HELD' })));
         const activeOrder = runningOrders[0];
         if (activeOrder) {
-          api.updateOrderStatus(activeOrder.id, 'Held', 'Operator')
-            .then(() => masterData?.refetchData?.())
+          api.updateOrderStatus(activeOrder.id, 'HELD', 'Operator')
+            .then(() => {
+              masterData?.refetchData?.();
+              window.dispatchEvent(new CustomEvent('mes:orders-updated'));
+            })
             .catch(() => {});
           api.logUserAction({
             username: 'Operator',
@@ -996,14 +1478,12 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             action: 'BATCH_HOLD',
             detail: `Batch [${activeOrder.id}] execution paused safely by operator`,
           }).catch(() => {});
+          api.transitionPhase({
+            order_code: activeOrder.id,
+            phase_id: 'PH_ALL',
+            state: 'HOLD',
+          }).catch(() => {});
         }
-        try {
-          await fetch('/api/gateway/batch-command', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'HOLD' }),
-          });
-        } catch {}
         setLastCommandFeedback(`[HOLD] ISA-88 #HOLD engaged. Dosing & thermal ramping paused safely.`);
         return;
       }
@@ -1013,17 +1493,18 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setRunningOrders(prev => prev.map(o => ({ ...o, status: 'RUNNING' })));
         const activeOrder = runningOrders[0];
         if (activeOrder) {
-          api.updateOrderStatus(activeOrder.id, 'Running', 'Operator')
-            .then(() => masterData?.refetchData?.())
+          api.updateOrderStatus(activeOrder.id, 'RUNNING', 'Operator')
+            .then(() => {
+              masterData?.refetchData?.();
+              window.dispatchEvent(new CustomEvent('mes:orders-updated'));
+            })
             .catch(() => {});
+          api.transitionPhase({
+            order_code: activeOrder.id,
+            phase_id: 'PH_ALL',
+            state: 'RESUME',
+          }).catch(() => {});
         }
-        try {
-          await fetch('/api/gateway/batch-command', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'RESUME' }),
-          });
-        } catch {}
         setLastCommandFeedback(`[RESUME / RESTART] Batch execution resumed.`);
         return;
       }
@@ -1040,8 +1521,11 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setRunningOrders(prev => prev.slice(1));
 
           // Asynchronously record batch completion to SQL Server and generate EBR report
-          api.updateOrderStatus(stopped.id, 'Completed', 'Operator')
-            .then(() => masterData?.refetchData?.())
+          api.updateOrderStatus(stopped.id, 'COMPLETED', 'Operator')
+            .then(() => {
+              masterData?.refetchData?.();
+              window.dispatchEvent(new CustomEvent('mes:orders-updated'));
+            })
             .catch(() => {});
           api.submitBatchCompletionReport({
             order_code: stopped.id,
@@ -1077,6 +1561,12 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             action: 'BATCH_COMPLETE',
             detail: `Batch [${stopped.id}] completed and verified. EBR report generated.`,
           }).catch(() => {});
+
+          api.transitionPhase({
+            order_code: stopped.id,
+            phase_id: 'PH_ALL',
+            state: 'STOP',
+          }).catch(() => {});
         }
         setHandshakeLoadedOk(false);
         setHandshakeStatus('IDLE');
@@ -1095,13 +1585,19 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCurrentBatchState('IDLE');
         setHandshakeLoadedOk(false);
         setHandshakeStatus('IDLE');
+        setCell1Ack(false);
+        setCell2Ack(false);
+        setCell1Complete(false);
+        setCell2Complete(false);
         try {
+          await api.resetDualRun();
           await fetch('/api/gateway/batch-command', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: 'RESET' }),
           });
         } catch {}
+        refreshDeviationMatrix();
         setLastCommandFeedback(`[RESET] State machine returned to IDLE.`);
         return;
       }
@@ -1117,7 +1613,12 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setFinishedOrders(prev => [aborted, ...prev]);
           setRunningOrders(prev => prev.slice(1));
 
-          api.updateOrderStatus(aborted.id, 'Aborted', 'Operator').catch(() => {});
+          api.updateOrderStatus(aborted.id, 'ABORTED', 'Operator')
+            .then(() => {
+              masterData?.refetchData?.();
+              window.dispatchEvent(new CustomEvent('mes:orders-updated'));
+            })
+            .catch(() => {});
           api.logUserAction({
             username: 'Operator',
             role: 'Operator',
@@ -1151,11 +1652,25 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         isScadaConnected,
         targetProcessLine,
         setTargetProcessLine,
+        executionMode,
+        setExecutionMode,
 
         handshakeStatus,
         handshakeLoadedOk,
+        cell1Ack,
+        cell2Ack,
+        cell1Complete,
+        cell2Complete,
+        cell1Duration,
+        cell2Duration,
+
+        deviationMatrix,
+        benchmarkSummary,
+        refreshDeviationMatrix,
+        completeCellSimulation,
 
         cipStatus,
+        setCipStatus,
         lastCipTimestamp,
         sterilityWindowHours,
         cipProgressRemaining,
@@ -1177,6 +1692,12 @@ export const OperationsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         topologyCards,
         timelineNodes,
         trendCards,
+
+        phaseDurations,
+        setPhaseDurations,
+        reloadPhaseDurations,
+        updatePhaseDuration,
+        saveAllPhaseDurations,
       }}
     >
       {children}

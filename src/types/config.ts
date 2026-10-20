@@ -1,3 +1,5 @@
+import { GatewayStatusResponse } from '../services/api';
+
 export type ConnectionState = 'connected' | 'disconnected' | 'connecting' | 'error';
 
 export interface SiemensPlcConfig {
@@ -43,4 +45,11 @@ export interface ConfigContextType {
   saveSqlConfig: () => Promise<boolean>;
   testSqlConnection: () => Promise<boolean>;
   isSavingSql: boolean;
+
+  // Centralized Gateway Status (Single Source of Truth)
+  gatewayStatus: GatewayStatusResponse | null;
+  isGatewayOnline: boolean;
+  refreshGatewayStatus: () => Promise<GatewayStatusResponse | null>;
+  setGatewayStatus: React.Dispatch<React.SetStateAction<GatewayStatusResponse | null>>;
 }
+

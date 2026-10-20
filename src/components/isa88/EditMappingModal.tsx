@@ -15,7 +15,8 @@ import {
   Save, 
   Activity, 
   CheckCircle2,
-  Server
+  Server,
+  Trash2
 } from 'lucide-react';
 
 interface EditMappingModalProps {
@@ -126,7 +127,7 @@ export const EditMappingModal: React.FC<EditMappingModalProps> = ({ isOpen, onCl
     setIsSaving(false);
 
     if (res.success) {
-      setSaveStatus({ type: 'success', message: res.message });
+      setSaveStatus({ type: 'success', message: 'Cập nhật ánh xạ thành công và đã lưu CSDL!' });
       setTimeout(() => {
         onClose();
       }, 1500);
@@ -218,7 +219,6 @@ export const EditMappingModal: React.FC<EditMappingModalProps> = ({ isOpen, onCl
                           onChange={(e) => handleNodeIdChange(row.tagName, e.target.value)}
                           className="w-full h-9 px-2.5 text-xs font-mono border border-slate-300 bg-white hallmark-focus"
                           placeholder="e.g. ns=2;s=Simulation Examples.Functions..."
-                          required
                         />
                       </td>
 
@@ -246,7 +246,7 @@ export const EditMappingModal: React.FC<EditMappingModalProps> = ({ isOpen, onCl
                         )}
                       </td>
 
-                      {/* Actions: Test Button & Result */}
+                      {/* Actions: Test Button, Unmap Button & Result */}
                       <td className="py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-2">
                           {hasTest && (
@@ -281,6 +281,19 @@ export const EditMappingModal: React.FC<EditMappingModalProps> = ({ isOpen, onCl
                               <Activity className="w-3.5 h-3.5 text-slate-500" />
                             )}
                             <span>Test</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={!row.node_id}
+                            onClick={() => {
+                              handleNodeIdChange(row.tagName, '');
+                            }}
+                            className="h-9 px-2 bg-white border border-rose-300 hover:bg-rose-50 text-rose-600 text-xs font-semibold uppercase tracking-wider flex items-center gap-1 hallmark-focus active:translate-y-px transition-colors disabled:opacity-40"
+                            title="Gỡ ánh xạ tag này (Đặt về [CHƯA ÁNH XẠ])"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Gỡ</span>
                           </button>
                         </div>
                       </td>

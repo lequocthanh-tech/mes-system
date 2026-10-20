@@ -5,9 +5,13 @@
 
 import React from 'react';
 import { SystemConfigView } from '../views/SystemConfigView';
+import { useConfig } from '../context/ConfigContext';
 
 export const Configuration: React.FC = () => {
-  return <SystemConfigView />;
+  const { gatewayStatus: statusData } = useConfig();
+  const isOnline = Boolean(statusData?.is_connected || statusData?.connected || statusData?.status === "ONLINE");
+
+  return <SystemConfigView isGatewayOnline={isOnline} />;
 };
 
 export default Configuration;

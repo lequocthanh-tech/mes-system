@@ -21,16 +21,30 @@ export const PhysicalTree: React.FC = () => {
 
   // Track expanded branches
   const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({
-    UNIT_MIXING: true,
-    UNIT_STERILIZE: true,
+    TK01: true,
+    TK02: true,
+    TK03: true,
+    MIX01: true,
+    HEATER01: true,
+    COOLER01: true,
+    OUT01: true,
   });
 
   const [expandedEms, setExpandedEms] = useState<Record<string, boolean>>({
-    EM_INLET_DOSING: true,
-    EM_TANK_VESSEL: true,
-    EM_AGITATOR: true,
-    EM_HEATING: true,
-    EM_STATE_COORDINATOR: true,
+    EM_TK01_LOADCELL: true,
+    EM_TK01_DOSING: true,
+    EM_TK02_LOADCELL: true,
+    EM_TK02_DOSING: true,
+    EM_TK03_LOADCELL: true,
+    EM_TK03_DOSING: true,
+    EM_MIX01_SENSORS: true,
+    EM_MIX01_AGITATOR: true,
+    EM_MIX01_OUTLET: true,
+    EM_HEATER01_SSR: true,
+    EM_HEATER01_VALVE: true,
+    EM_COOLER01_CHILLER: true,
+    EM_COOLER01_VALVE: true,
+    EM_OUT01_STORAGE: true,
   });
 
   const toggleUnit = (unitId: string) => {
@@ -92,7 +106,7 @@ export const PhysicalTree: React.FC = () => {
       role: cm.role,
       unit: cm.unit,
       liveValue: live?.value,
-      liveQuality: live?.quality || 'Good',
+      liveQuality: live ? (live.quality || 'Good (192)') : 'Unmapped',
     });
   };
 
@@ -226,7 +240,8 @@ export const PhysicalTree: React.FC = () => {
 
                               const live = telemetryMap[cm.ioAddress] || (cm.boundTagName ? telemetryMap[cm.boundTagName] : null);
                               const shortNode = cm.ioAddress.split('.').pop() || cm.ioAddress;
-                              const isGood = live?.quality === 'Good';
+                              const isGood = live && (live.quality === 'Good' || live.quality === 'Good (192)');
+                              const isUnmapped = !live;
 
                               return (
                                 <div
@@ -286,9 +301,9 @@ export const PhysicalTree: React.FC = () => {
                                     {/* Status / Quality Dot */}
                                     <span 
                                       className={`w-2 h-2 rounded-full inline-block ${
-                                        isGood ? 'bg-emerald-600' : 'bg-rose-500'
+                                        isUnmapped ? 'bg-slate-300' : isGood ? 'bg-emerald-600' : 'bg-rose-500'
                                       }`} 
-                                      title={isGood ? 'Telemetry Quality: Good' : 'Telemetry Quality: Bad / Disconnected'} 
+                                      title={isUnmapped ? 'Telemetry Quality: Unmapped / Offline' : isGood ? 'Telemetry Quality: Good (192)' : 'Telemetry Quality: Bad / Disconnected'} 
                                     />
                                   </div>
                                 </div>

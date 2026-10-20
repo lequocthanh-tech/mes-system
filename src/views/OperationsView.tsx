@@ -11,8 +11,10 @@ import { ProcessTelemetryAnalyze } from '../components/operations/ProcessTelemet
 import { Activity, Radio, Network, Clock, LineChart } from 'lucide-react';
 import { useOperations } from '../context/OperationsContext';
 import { useMasterData } from '../context/MasterDataContext';
-import { useConfig } from '../context/ConfigContext';
+import { useConfig, useGatewayStatus } from '../context/ConfigContext';
 import { OeeShiftDashboard } from '../components/OeeShiftDashboard';
+import { UseOeeSummaryReturn } from '../hooks/useOeeSummary';
+import { OeeSummaryData } from '../services/api';
 
 const useSafeConfig = () => {
   try {
@@ -24,9 +26,14 @@ const useSafeConfig = () => {
 
 export type OperationsSubTab = 'home' | 'topology' | 'timeline' | 'analyze';
 
-export const OperationsView: React.FC = () => {
+export interface OperationsViewProps {
+  oeeSummary?: UseOeeSummaryReturn | OeeSummaryData | null;
+}
+
+export const OperationsView: React.FC<OperationsViewProps> = ({ oeeSummary }) => {
   const [activeSubTab, setActiveSubTab] = useState<OperationsSubTab>('home');
-  const { currentBatchState, targetProcessLine, isScadaConnected } = useOperations();
+  const { currentBatchState, executionMode } = useOperations();
+  const { isGatewayOnline } = useGatewayStatus();
   const { refetchData } = useMasterData();
   const config = useSafeConfig();
   const sqlOnline = config?.sqlConfig?.connectionState === 'connected';
@@ -70,14 +77,26 @@ export const OperationsView: React.FC = () => {
 
         {/* Global Supervisory Indicators */}
         <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
-          <div className="bg-slate-100 border border-slate-300 px-3 py-1 text-slate-700 flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${isScadaConnected ? 'bg-emerald-600' : 'bg-slate-400'}`} />
-            <span>KEPWARE GATEWAY: {isScadaConnected ? 'CONNECTED (49320)' : 'STANDBY'}</span>
+          <div className={`border px-3 py-1 flex items-center gap-1.5 transition-colors ${
+            isGatewayOnline
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+              : 'bg-rose-50 border-rose-300 text-rose-950'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${isGatewayOnline ? 'bg-emerald-600 animate-pulse' : 'bg-rose-600'}`} />
+            <span className="font-semibold">
+              {isGatewayOnline ? '● KEPWARE GATEWAY: ONLINE (Port 49320)' : '● KEPWARE GATEWAY: OFFLINE'}
+            </span>
           </div>
 
           <div className="bg-slate-100 border border-slate-300 px-3 py-1 text-slate-700 flex items-center gap-1.5">
-            <span className="text-slate-500">LINE:</span>
-            <span className="font-semibold">{targetProcessLine.includes('Cell 2') || targetProcessLine.includes('PC2') ? 'CELL 2 (TWIN)' : 'CELL 1 (PHYSICAL)'}</span>
+            <span className="text-slate-500">MODE:</span>
+            <span className="font-semibold text-slate-900">
+              {executionMode === 'mode3_dual'
+                ? 'DUAL-RUN BENCHMARK'
+                : executionMode === 'mode2_simit'
+                ? 'CELL 2 (SIMIT TWIN)'
+                : 'CELL 1 (PHYSICAL)'}
+            </span>
           </div>
 
           <div className="bg-slate-900 text-white px-3 py-1 font-semibold flex items-center gap-1.5">
@@ -88,7 +107,7 @@ export const OperationsView: React.FC = () => {
       </div>
 
       {/* Real-Time OEE Calculation Engine & Shift Management Dashboard */}
-      <OeeShiftDashboard />
+      <OeeShiftDashboard oeeSummary={oeeSummary} />
 
       {/* Sub-navigation Tabs at the Top */}
       <div className="border-b border-slate-200 bg-white flex flex-wrap items-center gap-1 shadow-xs select-none">

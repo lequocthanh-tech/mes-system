@@ -18,9 +18,11 @@ import { QualityView } from './views/QualityView';
 import { InventoryView } from './views/InventoryView';
 import { EquipmentMaintenanceView } from './views/EquipmentMaintenanceView';
 import { EnterpriseReportCenterView } from './views/EnterpriseReportCenterView';
+import { OEEDashboard } from './pages/OEEDashboard';
 import { ActiveAlarmBanner } from './components/ActiveAlarmBanner';
 import { AICopilotDrawer } from './components/AICopilotDrawer';
 import { useReports } from './context/ReportContext';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -58,14 +60,51 @@ const MainLayout: React.FC = () => {
 
         {/* Main Content Area */}
         <div className="flex-1">
-          {activeTab === 'Configuration' && <SystemConfigView />}
-          {activeTab === 'ISA-88 Model' && <Isa88ModelView />}
-          {activeTab === 'Master Data' && <MasterDataView />}
-          {activeTab === 'Operations' && <OperationsView />}
-          {activeTab === 'Quality' && <QualityView />}
-          {activeTab === 'Inventory' && <InventoryView />}
-          {activeTab === 'Maintenance' && <EquipmentMaintenanceView />}
-          {activeTab === 'Reports' && <EnterpriseReportCenterView />}
+          {activeTab === 'Configuration' && (
+            <ErrorBoundary moduleName="Configuration">
+              <SystemConfigView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'ISA-88 Model' && (
+            <ErrorBoundary moduleName="ISA-88 Batch Model">
+              <Isa88ModelView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Master Data' && (
+            <ErrorBoundary moduleName="Master Data">
+              <MasterDataView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Operations' && (
+            <ErrorBoundary moduleName="Operations & Batch Execution">
+              <OperationsView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'OEE PERFORMANCE' && (
+            <ErrorBoundary moduleName="OEE Performance">
+              <OEEDashboard />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Quality' && (
+            <ErrorBoundary moduleName="Quality Control">
+              <QualityView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Inventory' && (
+            <ErrorBoundary moduleName="Material Inventory & Tank Telemetry">
+              <InventoryView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Maintenance' && (
+            <ErrorBoundary moduleName="Equipment & Maintenance">
+              <EquipmentMaintenanceView />
+            </ErrorBoundary>
+          )}
+          {activeTab === 'Reports' && (
+            <ErrorBoundary moduleName="Enterprise Reports & Audits">
+              <EnterpriseReportCenterView />
+            </ErrorBoundary>
+          )}
         </div>
 
         {/* AI Operations Copilot Slide-over Drawer */}
@@ -79,7 +118,7 @@ const MainLayout: React.FC = () => {
           <div className="flex items-center gap-3">
             <span>ISA-95 LEVEL 3 MOM SYSTEM</span>
             <span>•</span>
-            <span>MODULE 01: KEPWARE OPC UA & SQL CONFIG</span>
+            <span>MODULE 01: SYSTEM CONFIGURATION</span>
             <span>•</span>
             <span>MODULE 02: ISA-88 BATCH MODEL</span>
             <span>•</span>
@@ -87,13 +126,13 @@ const MainLayout: React.FC = () => {
             <span>•</span>
             <span>MODULE 04: OPERATIONS</span>
             <span>•</span>
-            <span>MODULE 05: BATCH QUALITY MANAGEMENT</span>
+            <span>MODULE 05: QUALITY MANAGEMENT</span>
             <span>•</span>
             <span>MODULE 06: MATERIAL INVENTORY</span>
             <span>•</span>
             <span>MODULE 07: EQUIPMENT & MAINTENANCE</span>
             <span>•</span>
-            <span>MODULE 08: ENTERPRISE REPORT CENTER</span>
+            <span>MODULE 08: REPORT CENTER</span>
           </div>
           <div>
             <span>HIGH-PERFORMANCE HMI (ISA-101 COMPLIANT)</span>
@@ -105,6 +144,13 @@ const MainLayout: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  React.useEffect(() => {
+    // Small tick to ensure browser has painted the DOM
+    requestAnimationFrame(() => {
+      window.electronAPI?.sendAppMounted?.();
+    });
+  }, []);
+
   return (
     <AuthProvider>
       <ConfigProvider>

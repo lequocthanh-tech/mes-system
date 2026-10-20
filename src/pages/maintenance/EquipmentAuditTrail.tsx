@@ -22,8 +22,12 @@ export const EquipmentAuditTrail: React.FC = () => {
   const { transitionEvents, equipmentList, selectedEquipmentId, refreshData } = useEquipment();
 
   // Filters - Uniform h-9 controls
-  const [fromDate, setFromDate] = useState<string>('2026-09-01');
-  const [toDate, setToDate] = useState<string>('2026-10-02');
+  const [fromDate, setFromDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [equipmentFilter, setEquipmentFilter] = useState<string>(selectedEquipmentId || 'ALL');
   const [transitionFilter, setTransitionFilter] = useState<string>('ALL');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);

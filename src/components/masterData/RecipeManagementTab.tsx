@@ -22,6 +22,7 @@ import {
   Info,
   Layers
 } from 'lucide-react';
+import { ESignatureModal } from '../ESignatureModal';
 
 const useSafeConfig = () => {
   try {
@@ -98,6 +99,22 @@ export const RecipeManagementTab: React.FC = () => {
   // Notifications
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
+  // Electronic Signature Modal State (21 CFR Part 11)
+  const [esignModalConfig, setEsignModalConfig] = useState<{
+    isOpen: boolean;
+    actionName: string;
+    fieldName?: string;
+    oldValue?: string;
+    newValue?: string;
+    defaultMeaning?: string;
+    detail?: string;
+    onCommit: () => Promise<void>;
+  }>({
+    isOpen: false,
+    actionName: '',
+    onCommit: async () => {},
+  });
+
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 4000);
@@ -141,7 +158,7 @@ export const RecipeManagementTab: React.FC = () => {
     setQualityGateError(null);
   };
 
-  // Save changes to current recipe
+  // Save changes to current recipe with 21 CFR Part 11 E-Signature verification
   const handleSaveChanges = async () => {
     if (!activeRecipe) return;
     if (isLocked) {
@@ -149,20 +166,29 @@ export const RecipeManagementTab: React.FC = () => {
       return;
     }
 
-    try {
-      // Save recipe details and parameters
-      await editRecipeMaster(activeRecipe.id, {
-        code: recipeForm.code.trim().toUpperCase(),
-        name: recipeForm.name.trim(),
-        category: recipeForm.category.trim(),
-        author: recipeForm.author.trim(),
-      });
-
-      await updateRecipeParameters(activeRecipe.id, parameters);
-      showNotification('success', `Recipe [${recipeForm.code} ${activeRecipe.version}] parameters saved successfully.`);
-    } catch (err: any) {
-      showNotification('error', `Failed to save recipe: ${err?.message || 'Database write failed'}`);
-    }
+    setEsignModalConfig({
+      isOpen: true,
+      actionName: 'RECIPE_MODIFICATION',
+      fieldName: 'RECIPE_FORMULATION',
+      oldValue: `${activeRecipe.code} v${activeRecipe.version} (Active Baseline)`,
+      newValue: `${recipeForm.code} v${recipeForm.version} (Modified Setpoints)`,
+      defaultMeaning: 'Recipe Modification',
+      detail: `Modified formulation parameters for recipe [${recipeForm.code} - ${recipeForm.name}]`,
+      onCommit: async () => {
+        try {
+          await editRecipeMaster(activeRecipe.id, {
+            code: recipeForm.code.trim().toUpperCase(),
+            name: recipeForm.name.trim(),
+            category: recipeForm.category.trim(),
+            author: recipeForm.author.trim(),
+          });
+          await updateRecipeParameters(activeRecipe.id, parameters);
+          showNotification('success', `Recipe [${recipeForm.code} ${activeRecipe.version}] parameters saved with verified electronic signature.`);
+        } catch (err: any) {
+          showNotification('error', `Failed to save recipe: ${err?.message || 'Database write failed'}`);
+        }
+      },
+    });
   };
 
   // Create New Version handler
@@ -176,7 +202,7 @@ export const RecipeManagementTab: React.FC = () => {
     }
   };
 
-  // Approve / Release Handler (Quality Gate Verification & State Sync)
+  // Approve / Release Handler (Quality Gate Verification & 21 CFR Part 11 E-Signature)
   const handleApproveRelease = async () => {
     if (!activeRecipe) return;
 
@@ -205,29 +231,35 @@ export const RecipeManagementTab: React.FC = () => {
       return;
     }
 
-    try {
-      // 3. Auto-commit changes: automatically commit changes to the recipe object without requiring separate pre-click on SAVE
-      await editRecipeMaster(activeRecipe.id, {
-        code: recipeForm.code.trim().toUpperCase(),
-        name: recipeForm.name.trim(),
-        category: recipeForm.category.trim(),
-        author: recipeForm.author.trim(),
-      });
-      await updateRecipeParameters(activeRecipe.id, parameters);
-
-      // 4. Update status to RELEASED in database & global state
-      await approveRecipe(activeRecipe.id);
-
-      // 5. Update local state immediately so UI switches to green "RELEASED (Operational)" and locks editing
-      setRecipeForm((prev) => ({ ...prev, status: 'RELEASED' }));
-      setQualityGateError(null);
-      showNotification(
-        'success',
-        `Recipe [${activeRecipe.code} ${activeRecipe.version}] has passed quality review and is now RELEASED for batch execution.`
-      );
-    } catch (err: any) {
-      showNotification('error', `Failed to approve recipe: ${err?.message || 'Database write failed'}`);
-    }
+    setEsignModalConfig({
+      isOpen: true,
+      actionName: 'RECIPE_APPROVAL',
+      fieldName: 'RECIPE_STATUS',
+      oldValue: activeRecipe.status,
+      newValue: 'RELEASED',
+      defaultMeaning: 'Approval',
+      detail: `Formal release authorization for master recipe [${activeRecipe.code} ${activeRecipe.version}]`,
+      onCommit: async () => {
+        try {
+          await editRecipeMaster(activeRecipe.id, {
+            code: recipeForm.code.trim().toUpperCase(),
+            name: recipeForm.name.trim(),
+            category: recipeForm.category.trim(),
+            author: recipeForm.author.trim(),
+          });
+          await updateRecipeParameters(activeRecipe.id, parameters);
+          await approveRecipe(activeRecipe.id);
+          setRecipeForm((prev) => ({ ...prev, status: 'RELEASED' }));
+          setQualityGateError(null);
+          showNotification(
+            'success',
+            `Recipe [${activeRecipe.code} ${activeRecipe.version}] approved and RELEASED with verified electronic signature.`
+          );
+        } catch (err: any) {
+          showNotification('error', `Failed to approve recipe: ${err?.message || 'Database write failed'}`);
+        }
+      },
+    });
   };
 
   // Lock Recipe Handler
@@ -784,6 +816,21 @@ export const RecipeManagementTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 21 CFR Part 11 Electronic Signature Modal */}
+      <ESignatureModal
+        isOpen={esignModalConfig.isOpen}
+        onClose={() => setEsignModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={async () => {
+          await esignModalConfig.onCommit();
+        }}
+        actionName={esignModalConfig.actionName}
+        fieldName={esignModalConfig.fieldName}
+        oldValue={esignModalConfig.oldValue}
+        newValue={esignModalConfig.newValue}
+        defaultMeaning={esignModalConfig.defaultMeaning}
+        detail={esignModalConfig.detail}
+      />
     </div>
   );
 };

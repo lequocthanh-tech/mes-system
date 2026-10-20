@@ -19,18 +19,37 @@ export const ProceduralTree: React.FC = () => {
   const { proceduralModel, selectedNode, selectNode, searchQuery, telemetryMap } = useIsa88();
 
   const [expandedUps, setExpandedUps] = useState<Record<string, boolean>>({
+    UP_DOSING_PC1: true,
     UP_MIXING_PC1: true,
+    UP_HEATING_PC1: true,
+    UP_COOLING_PC1: true,
+    UP_OUTBOUND_PC1: true,
   });
 
   const [expandedOps, setExpandedOps] = useState<Record<string, boolean>>({
-    OP_INLET_BLENDING: true,
-    OP_THERMAL_PROCESSING: true,
+    OP_DOSING_MILK: true,
+    OP_DOSING_SUGAR: true,
+    OP_DOSING_ADDITIVE: true,
+    OP_AGITATION: true,
+    OP_DISCHARGE_MIX: true,
+    OP_PASTEURIZE: true,
+    OP_TRANSFER_HEATER: true,
+    OP_CHILLING: true,
+    OP_TRANSFER_COOLER: true,
+    OP_PACKAGING: true,
   });
 
   const [expandedPhs, setExpandedPhs] = useState<Record<string, boolean>>({
-    PH_DOSING: true,
-    PH_AGITATING: true,
-    PH_HEATING: true,
+    PH_MILK_FEED: true,
+    PH_SUGAR_FEED: true,
+    PH_ADDITIVE_FEED: true,
+    PH_BLENDING: true,
+    PH_DRAIN_MIX: true,
+    PH_THERMAL_HOLD: true,
+    PH_HEAT_DRAIN: true,
+    PH_CHILL_CYCLE: true,
+    PH_CHILL_DRAIN: true,
+    PH_STORAGE_OUT: true,
   });
 
   const toggleUp = (upId: string) => {
@@ -115,13 +134,14 @@ export const ProceduralTree: React.FC = () => {
       equipmentRef: `Whitelisted Kepware OPC UA Tag #${tag.tagId}`,
       lastUpdated: live?.timestamp ? `Live Stream @ ${live.timestamp}` : 'Synchronized to Kepware',
       liveValue: live?.value,
-      liveQuality: live?.quality || 'Good',
+      liveQuality: live ? (live.quality || 'Good (192)') : 'Unmapped',
     });
   };
 
-  // Check if Batch is in running state
-  const batchStateLive = telemetryMap['ns=2;s=Simulation Examples.Functions.User1'] || telemetryMap['Batch_State'];
-  const isBatchRunning = String(batchStateLive?.value).toUpperCase() === 'RUNNING' || String(batchStateLive?.value) === '2';
+  // Check if Batch is in running state (ISA-88 State 1 = RUNNING)
+  const batchStateLive = telemetryMap['Batch_State'] || telemetryMap['pc1_batch_state'];
+  const batchVal = batchStateLive?.value;
+  const isBatchRunning = String(batchVal).toUpperCase() === 'RUNNING' || batchVal === 1 || String(batchVal) === '1';
 
   return (
     <div className="bg-white border border-slate-200 flex flex-col h-full shadow-xs">
@@ -322,7 +342,8 @@ export const ProceduralTree: React.FC = () => {
                                               : (typeof live.value === 'boolean' ? (live.value ? 'TRUE' : 'FALSE') : String(live.value)))
                                           : '—';
                                         
-                                        const isGood = live?.quality === 'Good';
+                                        const isGood = live && (live.quality === 'Good' || live.quality === 'Good (192)');
+                                        const isUnmapped = !live;
                                         const shortNode = tag.address.split('.').pop() || tag.address;
 
                                         return (
@@ -376,7 +397,15 @@ export const ProceduralTree: React.FC = () => {
                                               </div>
 
                                               {/* Quality Indicator */}
-                                              {isGood ? (
+                                              {isUnmapped ? (
+                                                <span 
+                                                  title="Quality: Unmapped / Offline" 
+                                                  className="inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.2 bg-slate-100 text-slate-500 border border-slate-300 font-semibold"
+                                                >
+                                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                                  Unmapped
+                                                </span>
+                                              ) : isGood ? (
                                                 <span 
                                                   title="Quality: Good (ISA-101 Verified)" 
                                                   className="inline-flex items-center gap-1 text-[9px] font-mono px-1 py-0.2 bg-emerald-50 text-emerald-800 border border-emerald-300 font-semibold"

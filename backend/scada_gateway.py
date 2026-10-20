@@ -51,7 +51,7 @@ TAG_CANDIDATES = {
 
 telemetry_store: Dict[str, Any] = {
     "scada_connected": False,
-    "nhiet_do": 50.0,
+    "nhiet_do": 0.0,
     "pump_status": False,
     "last_updated": None,
     "endpoint": SCADA_ENDPOINT,
@@ -213,13 +213,9 @@ async def scada_polling_worker():
             telemetry_store["last_error"] = str(conn_err)
             active_opc_client = None
 
-            # Simulation fallback for offline demonstrations
-            if telemetry_store["simulation_mode"]:
-                sim_tick += 1
-                sim_temp = 50.0 + 3.0 * math.sin(sim_tick * 0.15)
-                telemetry_store["nhiet_do"] = round(sim_temp, 2)
-                telemetry_store["poll_count"] += 1
-                telemetry_store["last_updated"] = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            # Strict Physical Commissioning: Never synthesize telemetry when offline
+            telemetry_store["nhiet_do"] = 0.0
+            telemetry_store["last_updated"] = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
             logger.info(f"SCADA Gateway connection state: {conn_err}. Retrying in 2 seconds...")
             await asyncio.sleep(2.0)

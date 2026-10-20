@@ -15,7 +15,8 @@ import {
   Save, 
   Activity, 
   CheckCircle2,
-  Server
+  Server,
+  Trash2
 } from 'lucide-react';
 
 interface EditSingleTagModalProps {
@@ -79,7 +80,6 @@ export const EditSingleTagModal: React.FC<EditSingleTagModalProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nodeId.trim()) return;
 
     setIsSaving(true);
     setSaveStatus(null);
@@ -95,7 +95,7 @@ export const EditSingleTagModal: React.FC<EditSingleTagModalProps> = ({
 
     setIsSaving(false);
     if (res.success) {
-      setSaveStatus({ type: 'success', message: res.message });
+      setSaveStatus({ type: 'success', message: 'Cập nhật ánh xạ thành công và đã lưu CSDL!' });
       setTimeout(() => {
         onClose();
       }, 1200);
@@ -173,7 +173,6 @@ export const EditSingleTagModal: React.FC<EditSingleTagModalProps> = ({
                 }}
                 className="flex-1 h-9 px-3 text-xs font-mono border border-slate-300 bg-white hallmark-focus"
                 placeholder="e.g. ns=2;s=Simulation Examples.Functions..."
-                required
               />
               <button
                 type="button"
@@ -268,6 +267,37 @@ export const EditSingleTagModal: React.FC<EditSingleTagModalProps> = ({
           <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
             <button
               type="button"
+              disabled={isSaving || !nodeId}
+              onClick={async () => {
+                setNodeId('');
+                setIsSaving(true);
+                setSaveStatus(null);
+                const writable = accessType === 'Read/Write';
+                const res = await saveSingleTagMapping(tagData.tagName, {
+                  node_id: '',
+                  unit: unit.trim(),
+                  writable,
+                  description: description.trim(),
+                  role: tagData.role || 'General Process Tag',
+                });
+                setIsSaving(false);
+                if (res.success) {
+                  setSaveStatus({ type: 'success', message: 'Đã gỡ ánh xạ tag thành công ([CHƯA ÁNH XẠ])!' });
+                  setTimeout(() => {
+                    onClose();
+                  }, 1000);
+                } else {
+                  setSaveStatus({ type: 'error', message: res.message });
+                }
+              }}
+              className="h-9 px-3 bg-white border border-rose-300 hover:bg-rose-50 text-rose-600 text-xs uppercase font-semibold font-mono flex items-center gap-1.5 hallmark-focus active:translate-y-px shadow-xs disabled:opacity-40"
+              title="Gỡ ánh xạ tag này (Đặt về [CHƯA ÁNH XẠ])"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Gỡ ánh xạ</span>
+            </button>
+            <button
+              type="button"
               onClick={onClose}
               className="h-9 px-3.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs uppercase font-semibold font-mono hallmark-focus active:translate-y-px"
             >
@@ -275,7 +305,7 @@ export const EditSingleTagModal: React.FC<EditSingleTagModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSaving || !nodeId.trim()}
+              disabled={isSaving}
               className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs uppercase font-semibold font-mono flex items-center gap-1.5 hallmark-focus active:translate-y-px shadow-xs disabled:opacity-50"
             >
               {isSaving ? (

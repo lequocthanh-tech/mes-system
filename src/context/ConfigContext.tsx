@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { SiemensPlcConfig, SqlServerConfig, ConfigContextType } from '../types/config';
-import { checkDbStatus, testDbConnection } from '../services/api';
+import { checkDbStatus, testDbConnection, getGatewayStatus, GatewayStatusResponse } from '../services/api';
 
 const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
@@ -189,6 +189,90 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearInterval(interval);
     };
   }, []);
+
+  // Centralized OPC UA Gateway Connection Status State (Shared Application-Wide)
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatusResponse | null>(null);
+
+  const refreshGatewayStatus = useCallback(async (): Promise<GatewayStatusResponse | null> => {
+    try {
+      const data = await getGatewayStatus();
+      setGatewayStatus(data);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mes:gateway-status-changed', { detail: data }));
+      }
+      return data;
+    } catch {
+      const fallback: GatewayStatusResponse = {
+        status: 'OFFLINE',
+        is_connected: false,
+        connected: false,
+        server_connected: false,
+        endpoint: 'opc.tcp://127.0.0.1:49320',
+        latency_ms: 0,
+        active_tags: 0,
+      };
+      setGatewayStatus(fallback);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mes:gateway-status-changed', { detail: fallback }));
+      }
+      return fallback;
+    }
+  }, []);
+
+  // Sync with Centralized Gateway: continuous 3s background poll of /api/gateway/status
+  useEffect(() => {
+    let isMounted = true;
+    const syncGateway = async () => {
+      try {
+        const data = await getGatewayStatus();
+        if (!isMounted) return;
+        setGatewayStatus(data);
+      } catch {
+        if (!isMounted) return;
+        setGatewayStatus({
+          status: 'OFFLINE',
+          is_connected: false,
+          connected: false,
+          server_connected: false,
+          endpoint: 'opc.tcp://127.0.0.1:49320',
+          latency_ms: 0,
+          active_tags: 0,
+        });
+      }
+    };
+
+    syncGateway();
+    const interval = setInterval(syncGateway, 3000);
+
+    const handleCustomStatusChanged = (e: any) => {
+      if (!isMounted) return;
+      if (e?.detail) {
+        setGatewayStatus(e.detail);
+      } else {
+        syncGateway();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mes:gateway-status-changed', handleCustomStatusChanged);
+      window.addEventListener('mes:gateway-status-refresh-needed', syncGateway);
+    }
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('mes:gateway-status-changed', handleCustomStatusChanged);
+        window.removeEventListener('mes:gateway-status-refresh-needed', syncGateway);
+      }
+    };
+  }, []);
+
+  const isGatewayOnline = Boolean(
+    gatewayStatus?.is_connected ||
+    gatewayStatus?.connected ||
+    gatewayStatus?.status === 'ONLINE'
+  );
 
   useEffect(() => {
     localStorage.setItem(PLC1_STORAGE_KEY, JSON.stringify(plc1Config));
@@ -399,6 +483,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         saveSqlConfig,
         testSqlConnection,
         isSavingSql,
+        gatewayStatus,
+        isGatewayOnline,
+        refreshGatewayStatus,
+        setGatewayStatus,
       }}
     >
       {children}
@@ -413,3 +501,19 @@ export const useConfig = (): ConfigContextType => {
   }
   return context;
 };
+
+export const useGatewayStatus = () => {
+  const { gatewayStatus: statusData, refreshGatewayStatus, setGatewayStatus } = useConfig();
+  const isOnline = Boolean(statusData?.is_connected || statusData?.connected || statusData?.status === "ONLINE");
+  return {
+    statusData,
+    gatewayStatus: statusData,
+    isOnline,
+    isGatewayOnline: isOnline,
+    latencyMs: statusData?.latency_ms ?? 0,
+    endpoint: statusData?.endpoint ?? 'opc.tcp://127.0.0.1:49320',
+    refreshGatewayStatus,
+    setGatewayStatus,
+  };
+};
+

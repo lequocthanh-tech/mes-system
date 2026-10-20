@@ -12,8 +12,12 @@ import {
   PackagePlus, 
   Database, 
   Layers, 
-  Boxes
+  Boxes,
+  UploadCloud,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
+import * as api from '../services/api';
 
 const useSafeConfig = () => {
   try {
@@ -27,16 +31,61 @@ export type InventorySubTab = 'inbound' | 'stock_overview';
 
 export const MaterialInventory: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<InventorySubTab>('inbound');
-  const { receipts, stocks, refreshStockBalance } = useInventory();
+  const { receipts, stocks, refreshStockBalance, fetchLiveStocks } = useInventory();
   const config = useSafeConfig();
   const sqlOnline = config?.sqlConfig?.connectionState === 'connected';
+  const prevSqlOnlineRef = React.useRef<boolean>(false);
+
+  const [isUplinking, setIsUplinking] = useState(false);
+  const [lastUplinkTime, setLastUplinkTime] = useState<string | null>(null);
+  const [uplinkToast, setUplinkToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleUplinkOdoo = async () => {
+    setIsUplinking(true);
+    setUplinkToast(null);
+    try {
+      const res = await api.uplinkTankStocks();
+      if (res.success) {
+        const ts = res.timestamp || new Date().toLocaleTimeString();
+        setLastUplinkTime(ts);
+        setUplinkToast({
+          text: `Đã cập nhật số dư 3 bồn lên Odoo ERP thành công! (${ts})`,
+          type: 'success',
+        });
+      } else {
+        setUplinkToast({
+          text: `Lỗi đồng bộ Odoo: ${res.error || 'Thao tác không thành công'}`,
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setUplinkToast({
+        text: `Lỗi kết nối Odoo ERP: ${err.message || 'Không thể đồng bộ'}`,
+        type: 'error',
+      });
+    } finally {
+      setIsUplinking(false);
+      setTimeout(() => setUplinkToast(null), 5000);
+    }
+  };
 
   React.useEffect(() => {
-    refreshStockBalance();
+    if (sqlOnline && !prevSqlOnlineRef.current) {
+      if (fetchLiveStocks) {
+        fetchLiveStocks(3, 300);
+      } else {
+        refreshStockBalance();
+      }
+    }
+    prevSqlOnlineRef.current = !!sqlOnline;
   }, [sqlOnline]);
 
-
-  const lowStockCount = stocks.filter((s) => s.currentStock < s.minThreshold).length;
+  const lowStockCount = stocks.filter((s: any) => {
+    const rawStock = [s.currentStock, s.CurrentStock, s.current_stock, s.Total_Quantity].find((v) => v !== undefined && v !== null && v !== '' && !isNaN(Number(v)));
+    const cur = rawStock !== undefined ? Number(rawStock) : 0;
+    const thresh = Number(s.minThreshold || s.MinSafetyThreshold || 1000);
+    return cur < thresh;
+  }).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 font-mono">
@@ -89,8 +138,52 @@ export const MaterialInventory: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Odoo Uplink Action Button */}
+          <button
+            type="button"
+            onClick={handleUplinkOdoo}
+            disabled={isUplinking}
+            data-state={isUplinking ? 'loading' : 'default'}
+            className={`h-9 px-3.5 text-xs font-mono font-semibold uppercase tracking-wider inline-flex items-center gap-1.5 border transition-none hallmark-focus active:translate-y-px rounded-xs ${
+              isUplinking
+                ? 'bg-slate-100 border-slate-300 text-slate-400 cursor-wait'
+                : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
+            }`}
+            title={lastUplinkTime ? `Lần đồng bộ Odoo cuối: ${lastUplinkTime}` : 'Đồng bộ số dư 3 bồn lên Odoo ERP'}
+          >
+            <UploadCloud className={`w-3.5 h-3.5 ${isUplinking ? 'animate-bounce text-sky-600' : 'text-slate-700'}`} />
+            <span>{isUplinking ? 'ĐANG ĐỒNG BỘ...' : '↑ ĐỒNG BỘ TỒN BỒN LÊN ODOO'}</span>
+          </button>
         </div>
       </div>
+
+      {/* Non-blocking Uplink Toast Alert */}
+      {uplinkToast && (
+        <div
+          className={`p-3 border font-mono text-xs flex items-center justify-between shadow-xs ${
+            uplinkToast.type === 'error'
+              ? 'bg-rose-50 border-rose-200 text-rose-950'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {uplinkToast.type === 'error' ? (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            )}
+            <span className="font-semibold">{uplinkToast.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUplinkToast(null)}
+            className="text-slate-500 hover:text-slate-800 text-[10px] font-bold px-1.5 py-0.5 ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Sub-Tabs Bar */}
       <div className="flex border-b border-slate-200 bg-white px-2 pt-2 gap-2 shadow-xs select-none">

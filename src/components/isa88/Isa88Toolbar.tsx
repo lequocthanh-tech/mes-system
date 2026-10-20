@@ -9,7 +9,7 @@ import { Search, Plus, RefreshCw, CheckCircle2, Edit3, X } from 'lucide-react';
 
 interface Isa88ToolbarProps {
   onOpenAddModal: () => void;
-  onOpenEditMapping: () => void;
+  onOpenEditMapping?: () => void;
 }
 
 export const Isa88Toolbar: React.FC<Isa88ToolbarProps> = ({
@@ -74,15 +74,17 @@ export const Isa88Toolbar: React.FC<Isa88ToolbarProps> = ({
             <span>Add Node</span>
           </button>
 
-          {/* Edit Mapping Button */}
-          <button
-            type="button"
-            onClick={onOpenEditMapping}
-            className="h-9 px-3.5 bg-white border border-slate-300 hover:bg-slate-100 hover:border-slate-400 text-slate-800 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 hallmark-focus active:translate-y-px rounded-xs transition-all shadow-xs"
-          >
-            <Edit3 className="w-3.5 h-3.5 text-slate-600" />
-            <span>Edit Mapping</span>
-          </button>
+          {/* Edit Mapping Button (Deprecated in favor of direct Tag Inspector) */}
+          {onOpenEditMapping && (
+            <button
+              type="button"
+              onClick={onOpenEditMapping}
+              className="h-9 px-3.5 bg-white border border-slate-300 hover:bg-slate-100 hover:border-slate-400 text-slate-800 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 hallmark-focus active:translate-y-px rounded-xs transition-all shadow-xs"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+              <span>Edit Mapping</span>
+            </button>
+          )}
 
           {/* Sync with SQL Server Button */}
           <button
